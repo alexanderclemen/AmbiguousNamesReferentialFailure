@@ -1,0 +1,3283 @@
+---
+title: "BA_main"
+author: "Alexander Clemen"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r head, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+#install.packages("ggdist")
+library(tidyverse)
+library(dplyr)
+library(bestNormalize)
+#libraries from the Statistics_for_Linguistics course
+library(SfL)
+library(ggplot2)
+library(beepr)
+library(e1071)
+library(performance)
+library(see)
+library(factoextra)
+library(trimr)
+library(broom)
+library(car)
+# lmer
+library(lme4)
+library(lmerTest)
+library(LMERConvenienceFunctions)
+#rain cloud plots
+library(ggdist)
+library(tidyquant)
+library(ggforce)
+library(gghalves)
+library(gridExtra) #to dislay many plots
+#r²
+library(MuMIn)
+theme_set(theme_light(base_size = 16))
+#visreg
+library(visreg)
+#colourblind friendly scheme
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+#signif marking in ggplots
+library(ggsignif)
+```
+
+## Bachelor thesis main document
+
+This is some descriptory text...
+
+# Load in data
+
+### Set wd and read in df
+
+```{r set wd read df, echo=FALSE}
+setwd("C:/Users/alexa/Documents/02_study/duesseldorf/BA_Linguistik/09_BBA_Bachelorarbeit/02_daten")
+df <- read_csv("df.txt")
+#?read_csv
+#dim(df)
+```
+
+```{r remove psychopy bug participants and compQ participants}
+dim(df)
+df <- df %>%
+  filter(participant != 2)
+df <- df %>%
+  filter(participant != 8)
+df <- df %>%
+  filter(participant != 38)
+df <- df %>%
+  filter(participant != 56)
+dim(df)
+```
+
+```{r add gender and age to participants who did not}
+
+df$participant_gender[df$participant == 85] <- "w"
+df$participant_age[df$participant == 85] <- 31
+df$participant_L2_2[df$participant == 85] <- "Latein"
+df$participant_L2_1[df$participant == 85] <- "Englisch"
+df$participant_L2_3[df$participant == 85] <- "Spanisch"
+df$participant_gender[df$participant == 19] <- "keineAngabe"
+df$participant_gender[df$participant == 30] <- "keineAngabe"
+df$participant_gender[df$participant == 34] <- "keineAngabe"
+df$participant_gender[df$participant == 65] <- "keineAngabe"
+df$participant_gender[df$participant == 76] <- "keineAngabe"
+
+```
+
+# 00 Create or change important Variables
+
+#### 00.1 Create Columns `pro_rating`, `participant_itemPro_mm` and `participant_mm_grouping` are important for later statistics. (1) `pro_rating`: The pronoun Sie has a gender rating of 7 and the pronoun er has a gender rating of 1 - the extremes likarts scale resembling the grammatical gender in our brain. (2) `participant_itemPro_mm`: is calculated on a participats basis. The the participants rated each item on a 1 to 7 scale and the absolute value `abs()` of the difference between the individuals rating `participant_item_rating` and the `pro_rating` is the `participant_itemPro_mm`. (3) `participant_mm_grouping`
+
+```{r}
+df$pro_rating <- df$pro
+df["pro_rating"][df["pro_rating"] == "Sie"] <- "7"
+df["pro_rating"][df["pro_rating"] == "Er"] <- "1"
+df$pro_rating <- as.integer(df$pro_rating)
+
+df$participant_itemPro_mm <- abs(df$participant_item_rating - df$pro_rating)
+# df$participant_itemPro_mm
+
+#df$participant_mm_grouping #
+# 0 1 | 2 3 4 | 5 6
+# m   | ambig.| mm
+
+# participant_mm_grouping
+df$participant_mm_grouping <- df$participant_itemPro_mm 
+df$participant_mm_grouping <- as.character(df$participant_mm_grouping) #cannot change from integer to character
+df["participant_mm_grouping"][df["participant_mm_grouping"] == "0"] <- "Match"
+df["participant_mm_grouping"][df["participant_mm_grouping"] == "1"] <- "Match"
+df["participant_mm_grouping"][df["participant_mm_grouping"] == "2"] <- "nAmbiguous"
+df["participant_mm_grouping"][df["participant_mm_grouping"] == "3"] <- "nAmbiguous"
+df["participant_mm_grouping"][df["participant_mm_grouping"] == "4"] <- "nAmbiguous"
+df["participant_mm_grouping"][df["participant_mm_grouping"] == "5"] <- "Mismatch"
+df["participant_mm_grouping"][df["participant_mm_grouping"] == "6"] <- "Mismatch"
+# df$participant_mm_grouping
+```
+
+## 00.2 I turn the reaction time from seconds into ms
+
+```{r,echo=FALSE}
+df$rt_pos01 <- df$rt_pos01_item*1000
+df$rt_pos02 <- df$rt_pos02_v*1000
+df$rt_pos03 <- df$rt_pos03_pp*1000
+df$rt_pos04 <- df$rt_pos04_pro*1000
+df$rt_pos05 <- df$`rt_pos05_pro+1`*1000
+df$rt_pos06 <- df$`rt_pos06_pro+2`*1000
+df$rt_pos07 <- df$`rt_pos07_pro+3`*1000
+df$rt_pos08 <- df$`rt_pos08_pro+4`*1000
+df$rt_pos09 <- df$`rt_pos09_pro+5`*1000
+
+#and remove the old variables
+df <- select(df, -c(rt_pos01_item, rt_pos02_v, rt_pos03_pp, rt_pos04_pro, `rt_pos05_pro+1`,`rt_pos06_pro+2`,`rt_pos07_pro+3`,`rt_pos08_pro+4`,`rt_pos09_pro+5`))
+```
+
+## 00.3 Explore df
+
+```{r}
+#colnames(df)
+
+#  [2] "trial_index" # the index of the trial. might be very useful because the item 1 might prime item 2.
+#df$trial_index
+df$trial_index <- as.numeric(df$trial_index)
+```
+
+```{r stimuli}
+# [3] "stimuli_id"
+df$stimuli_id <- as.factor(df$stimuli_id)
+# a unique identifier for every stimuli
+```
+
+```{r list and block}
+# [4] "list" 
+df$list <- as.factor(df$list)
+
+# in which list is the value. This cannot be a num because it is not a 
+
+#---
+# [5] "block"
+df$block <- as.factor(df$block)
+
+# in which block was the stimuli presented. This should not be int because it is not 
+```
+
+```{r sentence and item info}
+# [6] "sent_id"
+df$sent_id <- as.factor(df$sent_id)
+#unique identifier of every sentence
+
+
+# [7] "item_id"
+df$item_id <- as.factor(df$item_id)
+# unique identifier of every item
+
+# [8] "item" # {10} 
+# literally every item e.g. Names ("Alex"), Role Names ("Lehrerin")
+
+# [9] "item_type" {10} Target, Filler words
+df$item_type <- as.factor(df$item_type)
+# Levels: Dummy Filler Target Warm_Up
+```
+
+```{r var:pro}
+# [10] "pro" # {10} pronoun "Er" or "Sie"
+df$pro <- as.factor(df$pro)
+```
+
+```{r sentence info}
+# [11] "sent_full" # all values NA for target words
+df <- select(df, -c('sent_full'))
+## because all sentences are in `sent_full_2`
+# [12] "sent_full_2"
+```
+
+```{r item info}
+# [13] "item_freq_dwds" # google freq is better and most are NA here
+df <- select(df, -c('item_freq_dwds'))
+
+# [14] "item_freq_google" # rename because there is only one freq left
+df <- rename(df, item_freq = item_freq_google)
+df$item_freq <- as.numeric(df$item_freq)
+
+
+# [15] "item_gender_google" # for each item the gender from the google query
+df$item_gender_google <- as.factor(df$item_gender_google)
+
+# [16] "item_gender_norming" # KEY INFO for each item the gender from the rating study
+df$item_gender_norming <- as.factor(df$item_gender_norming)
+
+# [17] "item_rating_mean" # for each item the mean from the rating study
+
+# [18] "item_rating_sd" # for each item the sd from the rating study
+
+# [19] "item_rating_median" # for each item the median from the rating study
+
+# [20] "participant_item_rating" # KEY INFO for statistical method
+
+# [21] "participant_item_rating_rt" # we don't need this
+df <- select(df, -c('participant_item_rating_rt'))
+```
+
+```{r compQ into}
+### this section will be dealt with later
+# [22] "rt_comp_quest" # don't need this
+df <- select(df, -c('rt_comp_quest'))
+# [23] "key_comp_quest" # PARAMOUNT INFO
+# [24] "quest_correct_key"
+# [25] "quest_type"
+df <- select(df, -c('quest_type'))
+# [26] "quest_potential"
+df <- select(df, -c('quest_potential'))
+# [27] "quest_following"
+# [28] "quest_presented"
+# [29] "quest_true_answer"
+# [30] "quest_false_answer"
+```
+
+```{r VP info}
+# [31] "participant" #the ID of the VP
+df$participant <- as.character(df$participant)
+df$participant = as.factor(df$participant)
+# [32] "participant_first_name" #character
+# [33] "participant_last_name" #character     
+# [34] "participant_gender" # should be factor m f nb
+df$participant_gender <- as.factor(df$participant_gender)
+# [35] "participant_age" #numeric
+# [36] "handedness" # should be factor l r
+df <- select(df, -c('handedness')) # lefthanded participants all male
+#df["handedness"][df["handedness"] == "Rechtshändler"] <- "r"
+#df$handedness <- as.factor(df$handedness)
+```
+
+```{r languages}
+#https://datatofish.com/replace-values-dataframe-r/
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch 3"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch 5"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch 6"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch 7"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch 8"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch  8"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch 9"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch 10"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch (6)"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch (7)"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch (8)"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch (9)"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch gute Kentnisse (8)"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch - 4"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch - 10"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "8 Englisch"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Englisch, 10"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "englisch 7"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "englisch 8"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "englisch 9"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "englisch 10"] <- "eng"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Engslich: 9"] <- "eng"
+
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch 1"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch 2"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch 3"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch 4"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch 5"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch 6"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch 8"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch (1)"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch (2)"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Französisch (3)"] <- "fre"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "2 Französisch"] <- "fre"  
+
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch (3)"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch (5)"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch (7)"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch 1"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch 2"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch 3"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch 5"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch 7"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Spanisch 8"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "1 Spanisch"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "2 Spanisch"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "spanisch 2"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "spanisch 3"] <- "spa"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "spanisch"] <- "spa"
+
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Portugiesisch (3)"] <- "por"    
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Portugiesisch (6)"] <- "por"
+
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Italienisch 1"] <- "ita"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Italienisch 2"] <- "ita"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Italienisch 4"] <- "ita"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Italienisch 5"] <- "ita"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Italienisch (1)"] <- "ita"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Italienisch (2)"] <- "ita"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Italienisch (3)"] <- "ita"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Japanisch 1"] <- "jpn"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Japanisch 2"] <- "jpn"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Japanisch 4"] <- "jpn"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Japanisch 5"] <- "jpn"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Japanisch 8"] <- "jpn"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Japanisch (3)"] <- "jpn"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "japanisch 6"] <- "jpn"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Japanisch 3"] <- "jpn"
+
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Türkisch 8"] <- "tur"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Türkisch, 8"] <- "tur"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Russisch 2"] <- "rus"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Russisch: 3"] <- "rus"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Russisch 10"] <- "rus"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Russisch (1)"] <- "rus"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "4 Schwedisch"] <- "swe"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Schwedisch 1"] <- "swe"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Finnisch (1)"] <- "fin"  
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "6 Finnisch"] <- "fin"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Finnisch 2"] <- "fin"    
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "neugriechisch 2"] <- "grk" 
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Griechisch, 5"] <- "grk"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Griechisch (1)"] <- "grk"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Niederländisch 2"] <- "dut"  
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Niederländisch 3"] <- "dut" 
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Niederländisch 5"] <- "dut" 
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Niederländisch 7"] <- "dut"  
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Chinesisch (3)"] <- "mnd"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Chinesisch 1"] <- "mnd"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Chinesisch 2"] <- "mnd"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Polnisch 2"] <- "pol"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Polnisch (3)"] <- "pol"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Latein 1"] <- "lat"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Latein 2"] <- "lat"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Latein 5"] <- "lat"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Latein 6"] <- "lat"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Latein"] <- "lat"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Deutsche Gebärdensprache 3"] <- "dgs"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Deutsche Gebärdensprache 4"] <- "dgs"
+ 
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Arabisch 4"] <- "aeg"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Arabisch (1)"] <- "aeg"
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Thai 1"] <- "tha"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Thailändisch 10"] <- "tha"
+
+
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Laotisch 4"] <- "lao" 
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Koreanisch 4"] <- "kor"       
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Aserbaidschanisch 5"] <- "aze"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Tschechisch (1)"] <- "cze"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "vietnamesisch 8"] <- "vie"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "aramäisch 9"] <- "nap"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Deutsch 10"] <- "ger"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Litauisch (10)"] <- "lit"
+df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")][df[c("L2_1", "L2_2", "L2_3", "L2_4", "L2_5")] == "Tamazight 4"] <- "zgh" 	
+
+df["L2_1"][df["L2_1"] == "1"] <- NA
+df["L2_1"][df["L2_1"] == "7"] <- NA
+df["L2_1"][df["L2_1"] == "8"] <- NA
+df["L2_2"][df["L2_2"] == "2"] <- NA
+df["L2_2"][df["L2_2"] == "3"] <- NA
+df["L2_3"][df["L2_3"] == "0"] <- NA
+df["L2_4"][df["L2_4"] == "0"] <- NA
+df["L2_5"][df["L2_5"] == "0"] <- NA
+# [37] "L2_1" #the L2s of the participants
+df$L2_1 <- as.factor(df$L2_1)
+# [38] "L2_2"
+df$L2_2 <- as.factor(df$L2_2)
+# [39] "L2_3"
+df$L2_3 <- as.factor(df$L2_3)
+# [40] "L2_4"
+df$L2_4 <- as.factor(df$L2_4)
+# [41] "L2_5" 
+df$L2_5 <- as.factor(df$L2_5)
+```
+
+```{r languageTF}
+#https://www.marsja.se/r-add-column-to-dataframe-based-on-other-columns-conditions-dplyr/
+df$L2_1<-as.character(df$L2_1)
+df$L2_2<-as.character(df$L2_2)
+df$L2_3<-as.character(df$L2_3)
+df$L2_4<-as.character(df$L2_4)
+df$L2_5<-as.character(df$L2_5)
+
+df$freTF <- "banane"
+df <- df %>%
+  mutate(freTF = case_when(
+    endsWith(L2_1, "fre") ~ 1,
+    endsWith(L2_2, "fre") ~ 1,
+    endsWith(L2_3, "fre") ~ 1,
+    endsWith(L2_4, "fre") ~ 1,
+    endsWith(L2_5, "fre") ~ 1,
+    TRUE ~ 0),
+    )
+unique(df$freTF)
+
+####
+
+df$jpnTF <- "banane"
+df <- df %>%
+  mutate(jpnTF = case_when(
+    endsWith(L2_1, "jpn") ~ 1,
+    endsWith(L2_2, "jpn") ~ 1,
+    endsWith(L2_3, "jpn") ~ 1,
+    endsWith(L2_4, "jpn") ~ 1,
+    endsWith(L2_5, "jpn") ~ 1,
+    TRUE ~ 0),
+    )
+unique(df$jpnTF)
+
+####
+
+df$itaTF <- "banane"
+df <- df %>%
+  mutate(itaTF = case_when(
+    endsWith(L2_1, "ita") ~ 1,
+    endsWith(L2_2, "ita") ~ 1,
+    endsWith(L2_3, "ita") ~ 1,
+    endsWith(L2_4, "ita") ~ 1,
+    endsWith(L2_5, "ita") ~ 1,
+    TRUE ~ 0),
+    )
+unique(df$itaTF)
+
+df$L2_1<-as.factor(df$L2_1)
+df$L2_2<-as.factor(df$L2_2)
+df$L2_3<-as.factor(df$L2_3)
+df$L2_4<-as.factor(df$L2_4)
+df$L2_5<-as.factor(df$L2_5)
+```
+
+```{r VP rating and Mismatches}
+# [42] "pro_rating" # nobody needs this anymore
+df <- select(df, -c('pro_rating'))
+# [43] "participant_itemPro_mm"
+df$participant_itemPro_mm <- as.factor(df$participant_itemPro_mm)
+# [44] "participant_mm_grouping"
+df$participant_mm_grouping <- as.factor(df$participant_mm_grouping)
+
+```
+
+```{r position rt info}
+# [45] "rt_pos01"
+# [46] "rt_pos02"
+# [47] "rt_pos03"
+# [48] "rt_pos04"
+# [49] "rt_pos05"
+# [50] "rt_pos06"
+# [51] "rt_pos07"
+# [52] "rt_pos08"
+# [53] "rt_pos09"
+
+#class(df$rt_pos01)
+```
+
+## 00.4 create target-only-df `df_t`
+
+```{r create target-only-df `df_t`}
+unique(df$item_type)
+
+df_t = filter(df, item_type %in% c('Target'))
+# df_t = subset(df, df$item_type == "Target")
+
+```
+
+## 00.5 create `rt_sum` and `rt_sum_proInterest` columns only important for `df_t`
+
+```{r rt_sum rt_sum_proInterest}
+df_t$rt_sum <- df_t$rt_pos01+df_t$rt_pos02+df_t$rt_pos03+df_t$rt_pos04+df_t$rt_pos05+df_t$rt_pos06+df_t$rt_pos07+df_t$rt_pos08+df_t$rt_pos09
+df_t$rt_sum_proInterest <- df_t$rt_pos04+df_t$rt_pos05+df_t$rt_pos06+df_t$rt_pos07
+```
+
+# Pre-analyse data
+
+### participant age, gender
+
+```{r, echo=TRUE}
+mean(df$participant_age)
+sd(df$participant_age)
+range(df$participant_age)
+table(df$participant_gender)
+
+#tapply(df$participant_gender, df$participant, unique)
+```
+
+In this study 60 participants (18 male, 2 non-binary, 4 no answer, 36
+female) SOME DATAPOINTS ARE MISSING FROM THE FEMALE PARTICIPANTS SO I
+WILL NEED TO INVESTIGATE THIS!!
+
+t stands for target
+
+## 06.02. Only Match and Mismatch comparison
+
+```{r handedness as a factor? no, eval=FALSE, include=FALSE}
+temp <- df %>% filter(participant_gender == "m")
+temp2  <- temp %>% filter(handedness == "l")
+length(unique(temp$participant))
+length(unique(temp2$participant))
+```
+
+# 02_Remove Participants
+
+## 02.1 Comprehension Questions
+
+Eine schönheitskorrektur im Dataframe da ich bei der Comp-Question einen
+fehler gemacht hatte. Quest_following == 1 means that one question will
+follow but Quest_following == 0 should be Quest_following == NA
+
+```{r compQ schönheitskorrektur}
+df$quest_correct_key[df$quest_following == 0] <- NA
+```
+
+I created a colum in which there is a 1 if the "key_comp_quest"
+(Participants answer) is the same as "quest_correct_key" (the answer)
+
+```{r creating binary compQ column}
+df$participant_comp_correct[df$quest_correct_key == df$key_comp_quest] <- 1
+```
+
+### Pass compQ threshold or remove.
+
+participant 38 (71%) did not pass the threshold so he will be
+disregarded. lost 1.46% data
+
+```{r compQ check, echo=TRUE}
+#make a loop for this task
+participant_list <- unique(df$participant)
+
+for (i in participant_list){
+  x <- round(nrow(subset(df, participant == i & participant_comp_correct != ""))/45*100,3) 
+  if (x < 75) {
+    print(i)
+    print(x)
+  }
+}
+```
+
+```{r remove compQ Fail VPs}
+#dim(df)
+df <- df %>%
+  filter(participant != 38)
+# before 8088 rows
+# after  7970 rows
+#lost 1.46% data
+```
+
+## 02.2 Slow participants at for target words
+
+#### then I create the new variables `rt_sum` the sum of all rts and `rt_sum_proInterest` the sum of all rts in the positions of interest
+
+```{r}
+df_t$rt_sum <- df_t$rt_pos01+df_t$rt_pos02+df_t$rt_pos03+df_t$rt_pos04+df_t$rt_pos05+df_t$rt_pos06+df_t$rt_pos07+df_t$rt_pos08+df_t$rt_pos09
+df_t$rt_sum_proInterest <- df_t$rt_pos04+df_t$rt_pos05+df_t$rt_pos06+df_t$rt_pos07
+
+plot(df_t$participant, df_t$rt_sum)
+plot(df_t$participant, df_t$rt_sum_proInterest)
+```
+
+## 02.3 Nacherhebung
+
+2, 8, 38, 56 seems to have a problem BUT all seem to have the same
+strange problem 36 answers
+
+the participants 2, 8, 38, 50 and 56 seem to have strange datasets. Why?
+They are all in List 2 but there are some participants in list 2!! But
+VPs 62, 75, 72, 68, Don't have this problem.
+
+Pasticipant 38 was already removed due to compQ failure but i did a
+nacherhebung for the 5 participants because they were all from list 2.
+otherwise the lists would not be weighted evenly. I can now remove
+participants 2, 8, 50, and 56
+
+<!-- ```{r remove psychopy bug participants and compQ participants} -->
+
+<!-- df_t <- df_t %>% -->
+
+<!--   filter(participant != 2) -->
+
+<!-- df_t <- df_t %>% -->
+
+<!--   filter(participant != 8) -->
+
+<!-- df_t <- df_t %>% -->
+
+<!--   filter(participant != 38) -->
+
+<!-- df_t <- df_t %>% -->
+
+<!--   filter(participant != 50) -->
+
+<!-- df_t <- df_t %>% -->
+
+<!--   filter(participant != 56) -->
+
+<!-- ``` -->
+
+```{r raincloud plots for VP}
+participant_list <- unique(df$participant)
+
+#https://www.cedricscherer.com/2021/06/06/visualizing-distributions-with-raincloud-plots-and-how-to-create-them-with-ggplot2/#rain
+for (i in participant_list) {
+  print(
+df_t %>%
+  filter(participant == i) %>%
+  ggplot(., aes(x = rt_sum, y = i, fill = 'orange')) + 
+  ## add half-violin from {ggdist} package
+  ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+    ## adjust height
+    width = .6, 
+    ## move geom to the right
+    justification = -.2, 
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    width = .12, 
+    ## remove outliers
+    #outlier.color = NA ## `outlier.shape = NA` works as well
+  ) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    side = "left", 
+    dotsize = .7, 
+    justification = 1.1, 
+    binwidth = 100
+  ) +
+  ## remove white space on the left
+  coord_cartesian(xlim = c(2000, NA))+ 
+  theme(legend.position = "none")
+  )
+vp = "VP"
+rCloud = "rCloud_"
+png = ".png"
+vpNumber = as.character(i)
+pngName = paste(rCloud,vp, vpNumber, png, sep="")
+print(pngName)
+#ggsave(pngName)
+  }
+```
+
+```{r histogram for every sentence}
+#https://www.cedricscherer.com/2021/06/06/visualizing-distributions-with-raincloud-plots-and-how-to-create-them-with-ggplot2/#rain
+for (i in 1:60) {
+  print(
+df_t %>%
+  filter(sent_id == i) %>%
+  ggplot(., aes(x = rt_sum, y = i, fill = 'orange')) + 
+  ## add half-violin from {ggdist} package
+  ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+    ## adjust height
+    width = .6, 
+    ## move geom to the right
+    justification = -.2, 
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    width = .12, 
+    ## remove outliers
+    #outlier.color = NA ## `outlier.shape = NA` works as well
+  ) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    side = "left", 
+    dotsize = .7, 
+    justification = 1.1, 
+    binwidth = 100
+  ) +
+  ## remove white space on the left
+  coord_cartesian(xlim = c(2000, NA))+ 
+  theme(legend.position = "none")
+  )
+sent = "Sent"
+rCloud = "rCloud_"
+png = ".png"
+sentNr = as.character(i)
+pngName = paste(rCloud,sent, sentNr, png, sep="")
+print(pngName)
+#ggsave(pngName)
+
+}
+
+```
+
+# 03. Trimming
+
+## 03.0. `df_cat` New method of trimming - everything that is beyond the whiskers of rt_sum
+
+```{r }
+participant_list = unique(df_t$participant)
+temp2 = df_t
+for (i in participant_list) {
+  temp = df_t %>%
+    filter(participant == i)
+  iqr = IQR(temp$rt_sum)
+  upprBound = quantile(temp$rt_sum, 3/4, names = F)+1.5*iqr
+  temp2 = temp2 %>%
+    filter((participant == i & rt_sum < upprBound) | participant != i)
+  #print(i)
+  #temp3 = temp2 %>%
+  #  filter(participant == i)
+  #print(range(temp3$rt_sum))
+  #print(dim(temp2))
+}
+df_cat = temp2
+nrow(df_t)
+nrow(df_cat)
+round((1-nrow(df_cat)/nrow(df_t))*100, 3) # 4.399% of data lost
+```
+
+### inspecting the means of each participant. Participant 21, 61, 65, 77 are above 2 seconds. and participant 8 was much slower than everybody else
+
+```{r mean rt at each pos for each vp, eval=FALSE, include=FALSE}
+
+## also a good variant to check each mean rt for each participant at pos01
+#tapply(df_t$rt_pos01, df_t$participant, mean)
+
+for (i in participant_list) {
+print("next participant is:")
+print(i)
+test_df <- df_t[df_t$participant == i,]
+mean_vp <- mean(test_df$rt_pos01)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos02)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos03)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos04)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos05)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos06)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos07)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos08)
+print(mean_vp)
+mean_vp <- mean(test_df$rt_pos09)
+print(mean_vp)
+}
+```
+
+## 03.1.1 Trimming unsing the mean. First I cut everything below 200 and above 5000 ms because these seem to be the most logocal extremes. This stops the mean
+
+```{r trim 5k}
+temp_df <- c()
+df_preTrim5k <- c()
+
+for (i in participant_list) {
+  # print("next participant is:")
+  # print(i)
+  temp_df <- df_t[df_t$participant == i,]
+  temp_df <- temp_df[temp_df$rt_pos01 > 200 & temp_df$rt_pos01 < 5000,]
+  temp_df <- temp_df[temp_df$rt_pos02 > 200 & temp_df$rt_pos02 < 5000,]
+  #temp_df <- temp_df[temp_df$rt_pos03 > 200 & temp_df$rt_pos03 < 5000,]
+  temp_df <- temp_df[temp_df$rt_pos04 > 200 & temp_df$rt_pos04 < 5000,]
+  temp_df <- temp_df[temp_df$rt_pos05 > 200 & temp_df$rt_pos05 < 5000,]
+  temp_df <- temp_df[temp_df$rt_pos06 > 200 & temp_df$rt_pos06 < 5000,]
+  temp_df <- temp_df[temp_df$rt_pos07 > 200 & temp_df$rt_pos07 < 5000,]
+  #temp_df <- temp_df[temp_df$rt_pos08 > 200 & temp_df$rt_pos08 < 5000,]
+  #temp_df <- temp_df[temp_df$rt_pos09 > 200 & temp_df$rt_pos09 < 5000,]
+  df_preTrim5k <- rbind(df_preTrim5k,temp_df)
+}
+#df_preTrim5k
+```
+
+### trim the preTrimmed df with +-2.5sds
+
+```{r trim 5ks sd}
+temp_df <- c()
+df_5k <- c()
+
+for (i in participant_list) {
+  # print("next participant is:")
+  # print(i)
+  temp_df <- df_preTrim5k[df_preTrim5k$participant == i,]
+  temp_df <- temp_df[temp_df$rt_pos01 > (mean(temp_df$rt_pos01)-2.5*sd(temp_df$rt_pos01)) & temp_df$rt_pos01 < (mean(temp_df$rt_pos01)+2.5*sd(temp_df$rt_pos01)),]
+  temp_df <- temp_df[temp_df$rt_pos02 > (mean(temp_df$rt_pos02)-2.5*sd(temp_df$rt_pos02)) & temp_df$rt_pos02 < (mean(temp_df$rt_pos02)+2.5*sd(temp_df$rt_pos02)),]
+  #temp_df <- temp_df[temp_df$rt_pos03 > (mean(temp_df$rt_pos03)-2.5*sd(temp_df$rt_pos03)) & temp_df$rt_pos03 < (mean(temp_df$rt_pos03)+2.5*sd(temp_df$rt_pos03)),]
+  temp_df <- temp_df[temp_df$rt_pos04 > (mean(temp_df$rt_pos04)-2.5*sd(temp_df$rt_pos04)) & temp_df$rt_pos04 < (mean(temp_df$rt_pos04)+2.5*sd(temp_df$rt_pos04)),]
+  temp_df <- temp_df[temp_df$rt_pos05 > (mean(temp_df$rt_pos05)-2.5*sd(temp_df$rt_pos05)) & temp_df$rt_pos05 < (mean(temp_df$rt_pos05)+2.5*sd(temp_df$rt_pos05)),]
+  temp_df <- temp_df[temp_df$rt_pos06 > (mean(temp_df$rt_pos06)-2.5*sd(temp_df$rt_pos06)) & temp_df$rt_pos06 < (mean(temp_df$rt_pos06)+2.5*sd(temp_df$rt_pos06)),]
+  temp_df <- temp_df[temp_df$rt_pos07 > (mean(temp_df$rt_pos07)-2.5*sd(temp_df$rt_pos07)) & temp_df$rt_pos07 < (mean(temp_df$rt_pos07)+2.5*sd(temp_df$rt_pos07)),]
+  #temp_df <- temp_df[temp_df$rt_pos08 > (mean(temp_df$rt_pos08)-2.5*sd(temp_df$rt_pos08)) & temp_df$rt_pos08 < (mean(temp_df$rt_pos08)+2.5*sd(temp_df$rt_pos08)),]
+  #temp_df <- temp_df[temp_df$rt_pos09 > (mean(temp_df$rt_pos09)-2.5*sd(temp_df$rt_pos09)) & temp_df$rt_pos09 < (mean(temp_df$rt_pos09)+2.5*sd(temp_df$rt_pos09)),]
+  df_5k <- rbind(df_5k,temp_df)
+}
+
+df_5k
+
+```
+
+# Best normalize
+
+### Check the `df_5k` for normality and how much data ist lost. Terrible news. lets try `bestNormalze`
+
+```{r}
+dim(df_5k)# 2989 rows
+dim(df_t)# 3872   rows
+# VERSION 1:  1-(2487/3572)#  0.30375 -- 30% of the data lost
+1-(2989   /3872   )#  0.2280475 -- 23% of the data lost
+
+range(df_5k$rt_pos01)
+shapiro.test(df_5k$rt_pos01)
+hist(df_5k$rt_pos01)
+```
+
+## 03.1.2 Trimming unsing the mean. First I cut everything below 200 and above 2000 ms because these seem to be the most logocal extremes. This stops the mean
+
+```{r trim 2000 ms max}
+temp_df <- c()
+df_preTrim2k <- c()
+
+for (i in participant_list) {
+  # print("next participant is:")
+  # print(i)
+  temp_df <- df_t[df_t$participant == i,]
+  temp_df <- temp_df[temp_df$rt_pos01 > 200 & temp_df$rt_pos01 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos02 > 200 & temp_df$rt_pos02 < 2000,]
+  #temp_df <- temp_df[temp_df$rt_pos03 > 200 & temp_df$rt_pos03 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos04 > 200 & temp_df$rt_pos04 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos05 > 200 & temp_df$rt_pos05 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos06 > 200 & temp_df$rt_pos06 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos07 > 200 & temp_df$rt_pos07 < 2000,]
+  #temp_df <- temp_df[temp_df$rt_pos08 > 200 & temp_df$rt_pos08 < 2000,]
+  #temp_df <- temp_df[temp_df$rt_pos09 > 200 & temp_df$rt_pos09 < 2000,]
+  df_preTrim2k <- rbind(df_preTrim2k,temp_df)
+}
+
+#df_preTrim2k
+```
+
+### trim the preTrimmed df with +-2.5sds
+
+```{r trim 2ks sd}
+temp_df <- c()
+df_2k <- c()
+
+for (i in participant_list) {
+  # print("next participant is:")
+  # print(i)
+  temp_df <- df_preTrim2k[df_preTrim2k$participant == i,]
+  temp_df <- temp_df[temp_df$rt_pos01 > (mean(temp_df$rt_pos01)-2.5*sd(temp_df$rt_pos01)) & temp_df$rt_pos01 < (mean(temp_df$rt_pos01)+2.5*sd(temp_df$rt_pos01)),]
+  temp_df <- temp_df[temp_df$rt_pos02 > (mean(temp_df$rt_pos02)-2.5*sd(temp_df$rt_pos02)) & temp_df$rt_pos02 < (mean(temp_df$rt_pos02)+2.5*sd(temp_df$rt_pos02)),]
+  #temp_df <- temp_df[temp_df$rt_pos03 > (mean(temp_df$rt_pos03)-2.5*sd(temp_df$rt_pos03)) & temp_df$rt_pos03 < (mean(temp_df$rt_pos03)+2.5*sd(temp_df$rt_pos03)),]
+  temp_df <- temp_df[temp_df$rt_pos04 > (mean(temp_df$rt_pos04)-2.5*sd(temp_df$rt_pos04)) & temp_df$rt_pos04 < (mean(temp_df$rt_pos04)+2.5*sd(temp_df$rt_pos04)),]
+  temp_df <- temp_df[temp_df$rt_pos05 > (mean(temp_df$rt_pos05)-2.5*sd(temp_df$rt_pos05)) & temp_df$rt_pos05 < (mean(temp_df$rt_pos05)+2.5*sd(temp_df$rt_pos05)),]
+  temp_df <- temp_df[temp_df$rt_pos06 > (mean(temp_df$rt_pos06)-2.5*sd(temp_df$rt_pos06)) & temp_df$rt_pos06 < (mean(temp_df$rt_pos06)+2.5*sd(temp_df$rt_pos06)),]
+  temp_df <- temp_df[temp_df$rt_pos07 > (mean(temp_df$rt_pos07)-2.5*sd(temp_df$rt_pos07)) & temp_df$rt_pos07 < (mean(temp_df$rt_pos07)+2.5*sd(temp_df$rt_pos07)),]
+  #temp_df <- temp_df[temp_df$rt_pos08 > (mean(temp_df$rt_pos08)-2.5*sd(temp_df$rt_pos08)) & temp_df$rt_pos08 < (mean(temp_df$rt_pos08)+2.5*sd(temp_df$rt_pos08)),]
+  #temp_df <- temp_df[temp_df$rt_pos09 > (mean(temp_df$rt_pos09)-2.5*sd(temp_df$rt_pos09)) & temp_df$rt_pos09 < (mean(temp_df$rt_pos09)+2.5*sd(temp_df$rt_pos09)),]
+  df_2k <- rbind(df_2k,temp_df)
+}
+
+df_2k
+
+```
+
+### Check the `df_2k` for normality and how much data ist lost. Terrible news. lets try `bestNormalze`
+
+```{r}
+dim(df_2k)# 2623  rows
+dim(df_t)# 3572   rows
+# VERSION 1:   1-(2341/3572)#  0.34462 -- 34% of the data lost - only 4% more than the 5k version
+
+1-(2864   /3872   )#  0.2603306 -- 26% of the data lost
+range(df_2k$rt_pos01)
+shapiro.test(df_2k$rt_pos01)
+hist(df_2k$rt_pos01)
+```
+
+
+## 03.4 `log()`
+
+```{r log rts, echo=TRUE}
+df_t$rt_pos01_log <- log(df_t$rt_pos01)
+df_t$rt_pos02_log <- log(df_t$rt_pos02)
+df_t$rt_pos03_log <- log(df_t$rt_pos03)
+df_t$rt_pos04_log <- log(df_t$rt_pos04)
+df_t$rt_pos05_log <- log(df_t$rt_pos05)
+df_t$rt_pos06_log <- log(df_t$rt_pos06)
+df_t$rt_pos07_log <- log(df_t$rt_pos07)
+df_t$rt_pos08_log <- log(df_t$rt_pos08)
+df_t$rt_pos09_log <- log(df_t$rt_pos09)
+```
+
+## 03.4 `bestNorm()`
+
+### lets see if there are better results with the best normalisation function. All positions `df_5k$rt_pos01` etc chose `orderNorm()`
+
+```{r}
+# bestNormalize(df_5k$rt_pos01)
+# bestNormalize(df_5k$rt_pos02)
+# bestNormalize(df_5k$rt_pos03)
+# bestNormalize(df_5k$rt_pos04)
+# bestNormalize(df_5k$rt_pos05)
+# bestNormalize(df_5k$rt_pos06)
+# bestNormalize(df_5k$rt_pos07)
+# bestNormalize(df_5k$rt_pos08)
+# bestNormalize(df_5k$rt_pos09)
+```
+
+### 03.4.1 Normalze the data `df_t` with `orderNorm`. This did not work. Neither does `log`.
+
+```{r}
+# see documentation for `orderNorm` here: https://www.rdocumentation.org/packages/bestNormalize/versions/1.8.3/topics/orderNorm
+
+#bestNormalize(df_t$rt_pos01)
+#df_t$rt_pos01
+
+#normalize pos01
+orderNorm_obj <- orderNorm(df_t$rt_pos01,n_logit_fit = min(length(df_t$rt_pos01), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos01_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos01_ordNorm)
+
+#normalize pos02
+orderNorm_obj <- orderNorm(df_t$rt_pos02,n_logit_fit = min(length(df_t$rt_pos02), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos02_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos02_ordNorm)
+
+#normalize pos03
+orderNorm_obj <- orderNorm(df_t$rt_pos03,n_logit_fit = min(length(df_t$rt_pos03), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos03_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos03_ordNorm)
+
+#normalize pos04
+orderNorm_obj <- orderNorm(df_t$rt_pos04,n_logit_fit = min(length(df_t$rt_pos04), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos04_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos04_ordNorm)
+
+#normalize pos05
+orderNorm_obj <- orderNorm(df_t$rt_pos05,n_logit_fit = min(length(df_t$rt_pos05), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos05_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos05_ordNorm)
+
+#normalize pos06
+orderNorm_obj <- orderNorm(df_t$rt_pos06,n_logit_fit = min(length(df_t$rt_pos06), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos06_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos06_ordNorm)
+
+#normalize pos07
+orderNorm_obj <- orderNorm(df_t$rt_pos07,n_logit_fit = min(length(df_t$rt_pos07), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos07_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos07_ordNorm)
+
+#normalize pos08
+orderNorm_obj <- orderNorm(df_t$rt_pos08,n_logit_fit = min(length(df_t$rt_pos08), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos08_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos08_ordNorm)
+
+#normalize pos09
+orderNorm_obj <- orderNorm(df_t$rt_pos09,n_logit_fit = min(length(df_t$rt_pos09), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_t$rt_pos09_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_t$rt_pos09_ordNorm)
+```
+
+
+
+### 03.4.2.1 Normalze the data `df_5k` with `orderNorm`. This did not work. Neither does `log`.
+
+```{r}
+# see documentation for `orderNorm` here: https://www.rdocumentation.org/packages/bestNormalize/versions/1.8.3/topics/orderNorm
+
+#bestNormalize(df_5k$rt_pos01)
+#df_5k$rt_pos01
+
+#normalize pos01
+orderNorm_obj <- orderNorm(df_5k$rt_pos01,n_logit_fit = min(length(df_5k$rt_pos01), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos01_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos01_ordNorm)
+
+#normalize pos02
+orderNorm_obj <- orderNorm(df_5k$rt_pos02,n_logit_fit = min(length(df_5k$rt_pos02), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos02_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos02_ordNorm)
+
+#normalize pos03
+orderNorm_obj <- orderNorm(df_5k$rt_pos03,n_logit_fit = min(length(df_5k$rt_pos03), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos03_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos03_ordNorm)
+
+#normalize pos04
+orderNorm_obj <- orderNorm(df_5k$rt_pos04,n_logit_fit = min(length(df_5k$rt_pos04), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos04_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos04_ordNorm)
+
+#normalize pos05
+orderNorm_obj <- orderNorm(df_5k$rt_pos05,n_logit_fit = min(length(df_5k$rt_pos05), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos05_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos05_ordNorm)
+
+#normalize pos06
+orderNorm_obj <- orderNorm(df_5k$rt_pos06,n_logit_fit = min(length(df_5k$rt_pos06), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos06_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos06_ordNorm)
+
+#normalize pos07
+orderNorm_obj <- orderNorm(df_5k$rt_pos07,n_logit_fit = min(length(df_5k$rt_pos07), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos07_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos07_ordNorm)
+
+#normalize pos08
+orderNorm_obj <- orderNorm(df_5k$rt_pos08,n_logit_fit = min(length(df_5k$rt_pos08), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos08_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos08_ordNorm)
+
+#normalize pos09
+orderNorm_obj <- orderNorm(df_5k$rt_pos09,n_logit_fit = min(length(df_5k$rt_pos09), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_5k$rt_pos09_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_5k$rt_pos09_ordNorm)
+```
+
+### 03.4.2.2 Normalze the data `df_2k` with `orderNorm`. This did not work. Neither does `log`.
+
+```{r}
+# see documentation for `orderNorm` here: https://www.rdocumentation.org/packages/bestNormalize/versions/1.8.3/topics/orderNorm
+
+#bestNormalize(df_2k$rt_pos01)
+#df_2k$rt_pos01
+
+#normalize pos01
+orderNorm_obj <- orderNorm(df_2k$rt_pos01,n_logit_fit = min(length(df_2k$rt_pos01), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos01_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos01_ordNorm)
+
+#normalize pos02
+orderNorm_obj <- orderNorm(df_2k$rt_pos02,n_logit_fit = min(length(df_2k$rt_pos02), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos02_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos02_ordNorm)
+
+#normalize pos03
+orderNorm_obj <- orderNorm(df_2k$rt_pos03,n_logit_fit = min(length(df_2k$rt_pos03), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos03_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos03_ordNorm)
+
+#normalize pos04
+orderNorm_obj <- orderNorm(df_2k$rt_pos04,n_logit_fit = min(length(df_2k$rt_pos04), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos04_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos04_ordNorm)
+
+#normalize pos05
+orderNorm_obj <- orderNorm(df_2k$rt_pos05,n_logit_fit = min(length(df_2k$rt_pos05), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos05_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos05_ordNorm)
+
+#normalize pos06
+orderNorm_obj <- orderNorm(df_2k$rt_pos06,n_logit_fit = min(length(df_2k$rt_pos06), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos06_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos06_ordNorm)
+
+#normalize pos07
+orderNorm_obj <- orderNorm(df_2k$rt_pos07,n_logit_fit = min(length(df_2k$rt_pos07), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos07_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos07_ordNorm)
+
+#normalize pos08
+orderNorm_obj <- orderNorm(df_2k$rt_pos08,n_logit_fit = min(length(df_2k$rt_pos08), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos08_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos08_ordNorm)
+
+#normalize pos09
+orderNorm_obj <- orderNorm(df_2k$rt_pos09,n_logit_fit = min(length(df_2k$rt_pos09), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_2k$rt_pos09_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_2k$rt_pos09_ordNorm)
+```
+
+### 03.4.2.2 Normalze the data `df_cat` with `orderNorm`. This did not work. Neither does `log`.
+
+```{r}
+# see documentation for `orderNorm` here: https://www.rdocumentation.org/packages/bestNormalize/versions/1.8.3/topics/orderNorm
+
+#bestNormalize(df_cat$rt_pos01)
+#df_cat$rt_pos01
+
+#normalize pos01
+orderNorm_obj <- orderNorm(df_cat$rt_pos01,n_logit_fit = min(length(df_cat$rt_pos01), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos01_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos01_ordNorm)
+
+#normalize pos02
+orderNorm_obj <- orderNorm(df_cat$rt_pos02,n_logit_fit = min(length(df_cat$rt_pos02), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos02_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos02_ordNorm)
+
+#normalize pos03
+orderNorm_obj <- orderNorm(df_cat$rt_pos03,n_logit_fit = min(length(df_cat$rt_pos03), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos03_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos03_ordNorm)
+
+#normalize pos04
+orderNorm_obj <- orderNorm(df_cat$rt_pos04,n_logit_fit = min(length(df_cat$rt_pos04), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos04_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos04_ordNorm)
+
+#normalize pos05
+orderNorm_obj <- orderNorm(df_cat$rt_pos05,n_logit_fit = min(length(df_cat$rt_pos05), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos05_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos05_ordNorm)
+
+#normalize pos06
+orderNorm_obj <- orderNorm(df_cat$rt_pos06,n_logit_fit = min(length(df_cat$rt_pos06), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos06_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos06_ordNorm)
+
+#normalize pos07
+orderNorm_obj <- orderNorm(df_cat$rt_pos07,n_logit_fit = min(length(df_cat$rt_pos07), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos07_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos07_ordNorm)
+
+#normalize pos08
+orderNorm_obj <- orderNorm(df_cat$rt_pos08,n_logit_fit = min(length(df_cat$rt_pos08), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos08_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos08_ordNorm)
+
+#normalize pos09
+orderNorm_obj <- orderNorm(df_cat$rt_pos09,n_logit_fit = min(length(df_cat$rt_pos09), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_cat$rt_pos09_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+shapiro.test(df_cat$rt_pos09_ordNorm)
+```
+
+### 03.5 Transformation: Centering and Standardization
+
+```{r z-score for df_t}
+#colnames(df_t)
+#list_z = c("item_freq","item_rating_mean","item_rating_sd","item_rating_median","participant_item_rating","participant_age","participant_itemPro_mm","rt_pos01","rt_pos02","rt_pos03","rt_pos04","rt_pos05","rt_pos06","rt_pos07","rt_pos08","rt_pos09","rt_sum","rt_sum_proInterest")
+
+x = df_t$rt_pos01
+    df_t$rt_pos01_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos02
+    df_t$rt_pos02_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos03
+    df_t$rt_pos03_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos04
+    df_t$rt_pos04_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos05
+    df_t$rt_pos05_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos06
+    df_t$rt_pos06_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos07
+    df_t$rt_pos07_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos08
+    df_t$rt_pos08_z = (x - mean(x))/sd(x)
+x = df_t$rt_pos09
+    df_t$rt_pos09_z = (x - mean(x))/sd(x)
+#
+x = df_t$rt_sum
+    df_t$rt_sum_z = (x - mean(x))/sd(x)
+x = df_t$rt_sum_proInterest
+    df_t$rt_sum_proInterest_z = (x - mean(x))/sd(x)
+#
+x = df_t$item_freq
+    df_t$item_freq_z = (x - mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)
+x = df_t$item_rating_mean
+    df_t$item_rating_mean_z = (x - mean(x))/sd(x)
+x = df_t$item_rating_sd
+    df_t$item_rating_sd_z = (x - mean(x))/sd(x)
+x = df_t$item_rating_median
+    df_t$item_rating_median_z = (x - mean(x))/sd(x)
+x = df_t$participant_item_rating
+    df_t$participant_item_rating_z = (x - mean(x))/sd(x)
+x = df_t$participant_age
+    df_t$participant_age_z = (x - mean(x))/sd(x)
+df_t$participant_itemPro_mm <- 
+
+as.numeric(df_t$participant_itemPro_mm)
+x = df_t$participant_itemPro_mm
+    df_t$participant_itemPro_mm_z = (x - mean(x))/sd(x)
+df_t$participant_itemPro_mm <- as.factor(df_t$participant_itemPro_mm)
+x = df_t$trial_index
+    df_t$trial_index_z = (x - mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)
+
+```
+
+```{r z-score for df_5k}
+#colnames(df_t)
+#list_z = c("item_freq","item_rating_mean","item_rating_sd","item_rating_median","participant_item_rating","participant_age","participant_itemPro_mm","rt_pos01","rt_pos02","rt_pos03","rt_pos04","rt_pos05","rt_pos06","rt_pos07","rt_pos08","rt_pos09","rt_sum","rt_sum_proInterest")
+
+x = df_5k$rt_pos01
+    df_5k$rt_pos01_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos02
+    df_5k$rt_pos02_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos03
+    df_5k$rt_pos03_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos04
+    df_5k$rt_pos04_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos05
+    df_5k$rt_pos05_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos06
+    df_5k$rt_pos06_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos07
+    df_5k$rt_pos07_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos08
+    df_5k$rt_pos08_z = (x - mean(x))/sd(x)
+x = df_5k$rt_pos09
+    df_5k$rt_pos09_z = (x - mean(x))/sd(x)
+#
+x = df_5k$rt_sum
+    df_5k$rt_sum_z = (x - mean(x))/sd(x)
+x = df_5k$rt_sum_proInterest
+    df_5k$rt_sum_proInterest_z = (x - mean(x))/sd(x)
+#
+x = df_5k$item_freq
+    df_5k$item_freq_z = (x - mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)
+x = df_5k$item_rating_mean
+    df_5k$item_rating_mean_z = (x - mean(x))/sd(x)
+x = df_5k$item_rating_sd
+    df_5k$item_rating_sd_z = (x - mean(x))/sd(x)
+x = df_5k$item_rating_median
+    df_5k$item_rating_median_z = (x - mean(x))/sd(x)
+x = df_5k$participant_item_rating
+    df_5k$participant_item_rating_z = (x - mean(x))/sd(x)
+x = df_5k$participant_age
+    df_5k$participant_age_z = (x - mean(x))/sd(x)
+df_5k$participant_itemPro_mm <- 
+
+as.numeric(df_5k$participant_itemPro_mm)
+x = df_5k$participant_itemPro_mm
+    df_5k$participant_itemPro_mm_z = (x - mean(x))/sd(x)
+df_5k$participant_itemPro_mm <- as.factor(df_5k$participant_itemPro_mm)
+#}
+```
+
+```{r z-score for df_2k}
+#colnames(df_2k)
+#list_z = c("item_freq","item_rating_mean","item_rating_sd","item_rating_median","participant_item_rating","participant_age","participant_itemPro_mm","rt_pos01","rt_pos02","rt_pos03","rt_pos04","rt_pos05","rt_pos06","rt_pos07","rt_pos08","rt_pos09","rt_sum","rt_sum_proInterest")
+
+x = df_2k$rt_pos01
+    df_2k$rt_pos01_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos02
+    df_2k$rt_pos02_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos03
+    df_2k$rt_pos03_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos04
+    df_2k$rt_pos04_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos05
+    df_2k$rt_pos05_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos06
+    df_2k$rt_pos06_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos07
+    df_2k$rt_pos07_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos08
+    df_2k$rt_pos08_z = (x - mean(x))/sd(x)
+x = df_2k$rt_pos09
+    df_2k$rt_pos09_z = (x - mean(x))/sd(x)
+#
+x = df_2k$rt_sum
+    df_2k$rt_sum_z = (x - mean(x))/sd(x)
+x = df_2k$rt_sum_proInterest
+    df_2k$rt_sum_proInterest_z = (x - mean(x))/sd(x)
+#
+x = df_2k$item_freq
+    df_2k$item_freq_z = (x - mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)
+x = df_2k$item_rating_mean
+    df_2k$item_rating_mean_z = (x - mean(x))/sd(x)
+x = df_2k$item_rating_sd
+    df_2k$item_rating_sd_z = (x - mean(x))/sd(x)
+x = df_2k$item_rating_median
+    df_2k$item_rating_median_z = (x - mean(x))/sd(x)
+x = df_2k$participant_item_rating
+    df_2k$participant_item_rating_z = (x - mean(x))/sd(x)
+x = df_2k$participant_age
+    df_2k$participant_age_z = (x - mean(x))/sd(x)
+x = df_2k$trial_index
+    df_2k$trial_index_z = (x - mean(x))/sd(x)
+#df_2k$participant_itemPro_mm <- as.numeric(df_2k$participant_itemPro_mm_num)
+#x = df_2k$participant_itemPro_mm
+#    df_2k$participant_itemPro_mm_z = (x - mean(x))/sd(x)
+#df_2k$participant_itemPro_mm <- as.factor(df_2k$participant_itemPro_mm)
+
+```
+
+```{r z-score for df_cat}
+#colnames(df_cat)
+#list_z = c("item_freq","item_rating_mean","item_rating_sd","item_rating_median","participant_item_rating","participant_age","participant_itemPro_mm","rt_pos01","rt_pos02","rt_pos03","rt_pos04","rt_pos05","rt_pos06","rt_pos07","rt_pos08","rt_pos09","rt_sum","rt_sum_proInterest")
+
+x = df_cat$rt_pos01
+    df_cat$rt_pos01_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos02
+    df_cat$rt_pos02_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos03
+    df_cat$rt_pos03_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos04
+    df_cat$rt_pos04_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos05
+    df_cat$rt_pos05_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos06
+    df_cat$rt_pos06_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos07
+    df_cat$rt_pos07_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos08
+    df_cat$rt_pos08_z = (x - mean(x))/sd(x)
+x = df_cat$rt_pos09
+    df_cat$rt_pos09_z = (x - mean(x))/sd(x)
+#
+x = df_cat$rt_sum
+    df_cat$rt_sum_z = (x - mean(x))/sd(x)
+x = df_cat$rt_sum_proInterest
+    df_cat$rt_sum_proInterest_z = (x - mean(x))/sd(x)
+#
+x = df_cat$item_freq
+    df_cat$item_freq_z = (x - mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)
+x = df_cat$item_rating_mean
+    df_cat$item_rating_mean_z = (x - mean(x))/sd(x)
+x = df_cat$item_rating_sd
+    df_cat$item_rating_sd_z = (x - mean(x))/sd(x)
+x = df_cat$item_rating_median
+    df_cat$item_rating_median_z = (x - mean(x))/sd(x)
+x = df_cat$participant_item_rating
+    df_cat$participant_item_rating_z = (x - mean(x))/sd(x)
+x = df_cat$participant_age
+    df_cat$participant_age_z = (x - mean(x))/sd(x)
+df_cat$participant_itemPro_mm <- 
+
+as.numeric(df_cat$participant_itemPro_mm)
+x = df_cat$participant_itemPro_mm
+    df_cat$participant_itemPro_mm_z = (x - mean(x))/sd(x)
+df_cat$participant_itemPro_mm <- as.factor(df_cat$participant_itemPro_mm)
+#}
+```
+
+# 04 plotting
+
+## 4.1 play zone - here I just do what comes into mind
+
+```{r}
+ggplot(df_5k, aes(y = rt_sum, x = pro, fill = pro)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(y = rt_sum, x = pro, fill = participant_mm_grouping)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(y = (rt_pos01+rt_pos02+rt_pos03), x = pro, fill = participant_mm_grouping)) +
+  geom_boxplot()
+```
+
+### plotting general info about the df
+
+```{r}
+
+#RTSum ~ Gender -- apparently nb VPs are faster than m or f
+ggplot(df_5k, aes(y = rt_sum, x = participant_gender, fill = participant_gender)) + 
+  geom_boxplot()
+
+#RTSum ~ Age -- VPs get slower the older they are
+ggplot(df_5k, aes(y = rt_sum, x = as.character(participant_age), colours(distinct = FALSE))) + 
+  geom_boxplot()
+
+
+#RTSum ~ List -- all 6 lists seem equal
+ggplot(df_5k, aes(y = rt_sum, x = as.character(list))) + 
+  geom_boxplot() +
+  geom_hline(yintercept = median(df_5k$rt_sum), fill = "read")
+
+
+#RTSum ~ item -- find out which name was the longest on the **uncut df**
+ggplot(df_t, aes(rt_sum, 
+                    reorder(  item  ,df_t$rt_sum)  , fill = item_gender_google)) + 
+  geom_boxplot() +
+    theme(text = element_text(size=5))
+  
+
+#RTSum ~ item -- find out which name was the longest on the **cut df**
+ggplot(df_5k, aes(rt_sum, reorder(  item  ,df_5k$rt_sum)  , fill = item_gender_google)) + 
+  geom_boxplot() +
+    theme(text = element_text(size=5))
+
+
+#RTSum ~ sentence -- find out which sentence was the longest on the **untrimmed df**
+ggplot(df_t, aes(reorder(sent_id ,df_t$rt_sum),rt_sum, fill = as.character(quest_following))) + 
+  geom_boxplot() +
+    theme(text = element_text(size=4))
+
+#RTSum ~ sentence -- find out which sentence was the longest on the **trimmed df**
+ggplot(df_5k, aes(reorder(sent_id ,df_5k$rt_sum),rt_sum, fill = as.character(quest_following))) + 
+  geom_boxplot() +
+    theme(text = element_text(size=4))
+
+ggplot(df_t[df_t$pro == "Sie",], aes(x=rt_pos06, y=participant_mm_grouping, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  #geom_vline(xintercept = mean(df_5k$rt_pos04)) +
+  scale_x_continuous(limits = c(150, 700))
+```
+
+### master visualizer for rts
+
+```{r}
+# df_5k$participant_mm_grouping
+
+df_t %>%
+  #filter(participant_itemPro_mm == c(0, 3 ,6)) %>%
+  filter(participant_mm_grouping == c("Match"
+                                      ,"nAmbiguous"
+                                      ,"Mismatch"
+  )) %>%
+  ggplot(., aes(x = #rt_pos01
+              #rt_pos02
+              #rt_pos03
+              #rt_pos04
+              rt_pos05
+              #rt_pos06
+              #rt_pos07
+              #rt_pos08
+              #rt_pos09
+              , fill = #as.character(participant_itemPro_mm)
+                participant_mm_grouping
+              ,alpha = 0.005)) +
+  geom_density() +
+  scale_alpha(guide = 'none') +
+  theme(legend.position = c(0.8, 0.8))
+
+```
+
+### Plotting all rt positions in the trimmed df for "Sie" pronoun
+
+```{r}
+# rt_pos01  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos01, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste(underline("[Anna, Tim, Alex]")," | kommt | von der Frittenbude. | [Sie] | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos02  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos02, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | ",underline(kommt)," | von der Frittenbude. | [Sie] | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos03  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos03, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | ",underline("von der Frittenbude.")," | [Sie] | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos04 ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos04, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | ",underline("[Sie]")," | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos05  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos05, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Sie] | ",underline(hat)," | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos06  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos06, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Sie] | hat | ",underline(ein)," | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos07  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos07, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Sie] | hat | ein | ",underline(saftiges)," | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos08  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos08, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Sie] | hat | ein | saftiges | ",underline(Menu)," | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos09  ~ "Sie"
+ggplot(df_5k[df_5k$pro == "Sie",], aes(rt_pos09, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Sie] | hat | ein | saftiges | Menu | ",underline(verzehrt.)))) +
+  theme(text=element_text(size=5))
+```
+
+
+### Plotting all rt positions in the trimmed df for "Er" pronoun
+
+```{r}
+# rt_pos01  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos01, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste(underline("[Anna, Tim, Alex]")," | kommt | von der Frittenbude. | [Er] | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos02  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos02, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | ",underline(kommt)," | von der Frittenbude. | [Er] | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos03  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos03, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | ",underline("von der Frittenbude.")," | [Er] | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos04 ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos04, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | ",underline("[Er]")," | hat | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos05  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos05, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Er] | ",underline(hat)," | ein | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos06  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos06, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Er] | hat | ",underline(ein)," | saftiges | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+4
+# rt_pos07  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos07, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Er] | hat | ein | ",underline(saftiges)," | Menu | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos08  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos08, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Er] | hat | ein | saftiges | ",underline(Menu)," | verzehrt."))) +
+  theme(text=element_text(size=5))
+
+# rt_pos09  ~ "Er"
+ggplot(df_5k[df_5k$pro == "Er",], aes(rt_pos09, fill = participant_mm_grouping, alpha = 0.005)) +
+  geom_density() +
+  scale_x_continuous(limits = c(150, 1501)) +
+  ggtitle(expression(paste("[Anna, Tim, Alex] | kommt | von der Frittenbude. | [Er] | hat | ein | saftiges | Menu | ",underline(verzehrt.)))) +
+  theme(text=element_text(size=5))
+```
+
+## 04.3 Here I plotted the rts from the trimmed df by `pro` so if it it "Er" or "Sie"
+
+```{r, echo=FALSE}
+#---- Only pronoun Er
+par(mfrow=c(2,2))
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos01, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos02, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos03, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos04, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos05, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos06, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos07, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos08, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos09, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+#----
+
+
+#---- Only pronoun Sie
+
+
+par(mfrow=c(2,2))
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos01, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+par(mfrow=c(2,2))
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos02, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+par(mfrow = c(2, 2))
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos03, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+
+par(mfrow=c(2,2))
+ggplot(df_5k[df_5k$pro == "Sie",], aes(x=participant_mm_grouping, y=rt_pos04, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Sie") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Sie",], aes(x=participant_mm_grouping, y=rt_pos05, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Sie") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Sie",], aes(x=participant_mm_grouping, y=rt_pos06, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Sie") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Sie",], aes(x=participant_mm_grouping, y=rt_pos07, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Sie") +
+  scale_y_continuous(limits = c(150,750))
+
+ggplot(df_5k[df_5k$pro == "Sie",], aes(x=participant_mm_grouping, y=rt_pos08, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Sie") +
+  scale_y_continuous(limits = c(150,750))
+
+
+par(mfrow=c(2,2))
+ggplot(df_5k[df_5k$pro == "Er",], aes(x=participant_mm_grouping, y=rt_pos09, fill=participant_mm_grouping)) +
+  geom_boxplot() +
+  labs(title = "Er") +
+  scale_y_continuous(limits = c(150,750))
+par(mfrow=c(1,1))
+
+#----
+
+
+par(mfrow=c(2,2))
+ggplot(df_5k, aes(x=participant_mm_grouping, y=rt_pos01, fill=participant_mm_grouping)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(x=participant_mm_grouping, y=rt_pos02, fill=participant_mm_grouping)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(x=participant_mm_grouping, y=rt_pos03, fill=participant_mm_grouping)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(x=participant_mm_grouping, y=rt_pos04, fill=participant_mm_grouping)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(x=participant_mm_grouping, y=rt_pos05, fill=participant_mm_grouping)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(x=participant_mm_grouping, y=rt_pos06, fill=participant_mm_grouping)) +
+  geom_boxplot()
+
+ggplot(df_5k, aes(x=participant_mm_grouping, y=rt_pos07, fill=participant_mm_grouping)) +
+  geom_boxplot()
+
+```
+
+
+## Avoid colinearity - Correlation Matric
+
+```{r 5.5.0 correlation matrix, fig.height=20, fig.width=20}
+colnames(df_t)
+
+correlation_matrix(data = df_t,
+                   variables = c(
+"trial_index_z",# ; ~ block rs = 1; 
+"stimuli_id", # ~ list rs = .99
+"list", # ~ stimuli_id rs = 0.99 # out
+"block", # ~ trial_index rs = 1 # out
+"sent_id",
+"item_id", # ~ item_gender_norming rs = .5; 
+"pro",
+"item_freq",
+"item_gender_norming", # ~ item_id rs = .5; ~ participant_mm_grouping rs = 0.42 # out
+"participant",
+#"participant_first_name",
+#"participant_last_name",
+"participant_gender",
+"participant_age_z",
+"participant_itemPro_mm",# participant_mm_grouping; ~ participant_mm_grouping rs = 0.42
+"participant_mm_grouping" # participant_itemPro_mm
+))
+
+
+```
+
+my predictor variables:
+
+participant_itemPro_mm or participant_mm_groupin list in which list was
+the vp trial_index the id of each VP at which position it was at any
+point in the trial NO! block in which block was the stimuli sent_id an
+id of the carrier sentences item_id an id of the names pro er or sie
+item_freq ... participant id of participant participant_gender m,f,nb,NA
+participant_age 18--35
+
+
+# Baayen Residual Trim
+
+```{r Baayen 279 Residual trim, eval=FALSE, include=FALSE}
+### original formula
+> lexdec3.lmerEtrimmed = 
++ lmer(RT ~ cTrial + Frequency + meanWeight + NativeLanguage Length + * + (1|Subject) + (0+cTrial|Subject) + (1|Word), 
++ data = lexdec3, subset = abs(scale(resid(lexdec3.lmerE))) < 2.5) 
+> nrow(lexdec3)-nrow(lexdec3[abs(scale(resid(lexdec3.lmerE))) < 2.5,])
+
+### reduced formula
+
+example_df.lmerEtrimmed = lmer(RT ~ cTrial, data = example_df, subset = abs(scale(resid(example_df.lmerE))) < 2.5)
+
+#What is lexdec3.lmerE?
+example_df.lmerE = lmer(RT ~ cTria, example_df)
+
+#determining the number of rows
+nrow(example_df)-nrow(example_df[abs(scale(resid(example_df.lmerE))) < 2.5,])
+```
+
+
+## 5.5.1 `lmer` auf `df_t`
+
+```{r lmer df_t participant_mm_grouping}
+lmer_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_P1))) < 2.5)
+
+
+lmer_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_P2))) < 2.5)
+
+
+lmer_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_P4))) < 2.5)
+
+
+lmer_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_P5))) < 2.5)
+
+
+lmer_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_P6))) < 2.5)
+
+lmer_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_P7))) < 2.5)
+```
+
+## 5.5.2 `lmer` auf `df_cat`
+
+```{r lmer cat participant_mm_grouping}
+# pos01
+lmer_cat_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat)
+lmer_cat_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat, subset = abs(scale(resid(lmer_cat_P1))) < 2.5)
+
+# pos02
+lmer_cat_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat)
+lmer_cat_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat, subset = abs(scale(resid(lmer_cat_P2))) < 2.5)
+
+# pos04
+lmer_cat_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat)
+lmer_cat_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat, subset = abs(scale(resid(lmer_cat_P4))) < 2.5)
+
+# pos05
+lmer_cat_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat)
+
+lmer_cat_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat, subset = abs(scale(resid(lmer_cat_P5))) < 2.5)
+
+# pos06
+lmer_cat_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat)
+lmer_cat_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_cat_P6))) < 2.5)
+
+# pos07
+lmer_cat_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_cat_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_cat_P7))) < 2.5)
+```
+
+## 5.5.3 `lmer` auf `df_5k`
+
+```{r lmer 5k participant_mm_grouping}
+# pos01
+lmer_5k_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k)
+lmer_5k_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k, subset = abs(scale(resid(lmer_5k_P1))) < 2.5)
+
+# pos02
+lmer_5k_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k)
+lmer_5k_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k, subset = abs(scale(resid(lmer_5k_P2))) < 2.5)
+
+# pos04
+lmer_5k_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k)
+lmer_5k_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k, subset = abs(scale(resid(lmer_5k_P4))) < 2.5)
+
+# pos05
+lmer_5k_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k)
+
+lmer_5k_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k, subset = abs(scale(resid(lmer_5k_P5))) < 2.5)
+
+# pos06
+lmer_5k_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k)
+lmer_5k_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_5k_P6))) < 2.5)
+
+# pos07
+lmer_5k_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+lmer_5k_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(lmer_5k_P7))) < 2.5)
+```
+
+## 5.5.3 `lmer` auf `df_2k`
+
+### Regions 01 and 02 -- Non-Ambiguous vs Ambiguous
+
+```{r non-ambiguous ambiguous statistics}
+levels(df_2k$participant_mm_grouping)
+# erstelle die spalte
+df_2k$participant_mm_grouping_nonAmb <- df_2k$participant_mm_grouping
+
+
+#rename: Match und Mismatch == Non-Ambiguous & nAmbiguous == Ambiguous
+df_2k$participant_mm_grouping_nonAmb <- as.character(df_2k$participant_mm_grouping_nonAmb)
+df_2k$participant_mm_grouping_nonAmb[df_2k$participant_mm_grouping_nonAmb == "Match"] <- "Non-Ambiguous"
+df_2k$participant_mm_grouping_nonAmb[df_2k$participant_mm_grouping_nonAmb == "Mismatch"] <- "Non-Ambiguous"
+df_2k$participant_mm_grouping_nonAmb[df_2k$participant_mm_grouping_nonAmb == "nAmbiguous"] <- "Ambiguous"
+df_2k$participant_mm_grouping_nonAmb <- as.factor(df_2k$participant_mm_grouping_nonAmb)
+levels(df_2k$participant_mm_grouping_nonAmb)
+
+
+```
+
+### Regions 01 and 02
+
+```{r region 1 and 2 with non-ambiguous}
+df_2k$participant_mm_grouping_nonAmb <- relevel(df_2k$participant_mm_grouping_nonAmb, ref = "Non-Ambiguous")
+df_2k$participant_gender <- relevel(df_2k$participant_gender, ref = "m")
+
+lmer_2k_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P1))) < 2.5)
+
+
+lmer_2k_P1_2 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P1_2_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P1_2))) < 2.5)
+
+AIC(lmer_2k_P1_trimmed, lmer_2k_P1_2_trimmed)
+
+# pos02
+lmer_2k_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P2))) < 2.5)
+
+lmer_2k_P2_2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P2_2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P2_2))) < 2.5)
+
+AIC(lmer_2k_P2_trimmed, lmer_2k_P2_2_trimmed)
+
+```
+
+
+### Regions 04 to 07
+
+```{r lmer 2k participant_mm_grouping}
+
+df_2k$participant_gender <- relevel(df_2k$participant_gender, ref = "m")
+df_2k$participant_mm_grouping <- relevel(df_2k$participant_mm_grouping, ref = "Match")
+# for R1 and 2 see below
+
+
+# pos04
+lmer_2k_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P4))) < 2.5)
+
+lmer_2k_2_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P4_2_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_2_P4))) < 2.5)
+
+AIC(lmer_2k_P4_trimmed, lmer_2k_P4_2_trimmed)
+
+# pos05
+lmer_2k_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P5))) < 2.5)
+
+lmer_2k_2_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P5_2_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_2_P5))) < 2.5)
+
+AIC(lmer_2k_P5_trimmed, lmer_2k_P5_2_trimmed)
+
+# pos06
+lmer_2k_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P6))) < 2.5)
+
+lmer_2k_2_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P6_2_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_2_P6))) < 2.5)
+
+AIC(lmer_2k_P6_trimmed, lmer_2k_P6_2_trimmed)
+
+# pos07
+lmer_2k_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P7))) < 2.5)
+
+  
+lmer_2k_2_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_P7_2_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_2_P7))) < 2.5)
+
+AIC(lmer_2k_P7_trimmed, lmer_2k_P7_2_trimmed)
+```
+
+
+## Model fit AIC comparisons
+
+```{r AIC04}
+t <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t)
+t_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_t, subset = abs(scale(resid(t))) < 2.5)
+
+
+cat <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat)
+cat_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_cat, subset = abs(scale(resid(cat))) < 2.5)
+
+fivek <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k)
+fivek_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_5k, subset = abs(scale(resid(fivek))) < 2.5)
+
+twok <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+
+AIC(twok_trimmed,twok,fivek_trimmed,fivek, cat_trimmed, cat, t_trimmed,t
+    )
+# best model is twok_trimmed because it has the lowest aic value
+```
+
+template
+```{r}
+twok <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+# AIC(twok_trimmed,
+#     )
+```
+
+no trial --trial remains
+```{r}
+twok_NoTrial <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoTrial = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoTrial
+    )
+```
+no list -- list remains
+```{r}
+twok_NoList <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoList = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoList
+    )
+```
+no Pro -- pro remains
+```{r}
+twok_NoPro <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoPro = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed, twok_trimmed_NoPro
+    )
+```
+no freq -- freq remains
+```{r}
+twok_NoFreq <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro +  participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoFreq = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoFreq
+    )
+```
+no gender -- gender remains
+```{r}
+twok_NoGen <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z +  participant_age_z, df_2k)
+twok_trimmed_NoGen = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoGen
+    )
+```
+no Age -- age remains
+```{r}
+twok_NoAge <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender, df_2k)
+twok_trimmed_NoAge = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + (1 | item) + trial_index + list + pro + item_freq_z + participant_gender, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed, twok_trimmed_NoAge
+    )
+# twok_trimmed is better -- we leave age in
+```
+no item -- item removed
+```{r}
+twok_NoItem <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoItem = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoItem
+    )
+AIC(twok_trimmed_NoItem,twok_trimmed,twok_trimmed_NoAge,twok_trimmed_NoPro,twok_trimmed_NoGen,twok_trimmed_NoList,twok_trimmed_NoFreq,twok_trimmed_NoTrial)
+## second round of AIC
+
+#no trial --trial remains
+```
+
+```{r}
+twok_NoTrial <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoTrial = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoTrial
+    )
+```
+no list -- list remains
+```{r}
+twok_NoList <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoList = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoList
+    )
+```
+no freq -- freq remains
+```{r}
+twok_NoFreq <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro +  participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoFreq = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoFreq
+    )
+```
+no gender -- gender remains
+```{r}
+twok_NoGen <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z +  participant_age_z, df_2k)
+twok_trimmed_NoGen = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoGen
+    )
+```
+no Age -- age remains
+```{r}
+twok_NoAge <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender, df_2k)
+twok_trimmed_NoAge = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed, twok_trimmed_NoAge
+    )
+# twok_trimmed is better -- we leave age in
+```
+no item -- item removed
+```{r}
+twok_NoItem <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+twok_trimmed_NoItem = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(twok))) < 2.5)
+
+AIC(twok_trimmed,twok_trimmed_NoItem
+    )
+```
+no further improvements
+
+## Model diagnostics
+
+
+```{r 2k Diagnostik}
+df_2k$rt_pos04_log <- log(df_2k$rt_pos04)
+shapiro.test(df_2k$rt_pos04_ordNorm)
+
+## Normality --
+plot(check_normality(lmer_2k_P4_trimmed))
+ggsave("Diagnostik_Normality_lmer_Discrete_P4.pdf",  width = 20, height = 15, units = "cm")
+par(mfrow = c(1, 2))
+
+#hist(residuals(lmer_2k_P4_trimmed), col = 'skyblue2')
+
+qqnorm(residuals(lmer_2k_P4_trimmed))
+qqline(residuals(lmer_2k_P4_trimmed))
+
+plot(fitted(lmer_2k_P4_trimmed), residuals(lmer_2k_P4_trimmed))
+
+ggsave("Diagnostik_QQ_lmer_Discrete_P4.pdf",  width = 20, height = 15, units = "cm")
+## Linearity, Homoscedasticity --
+plot(check_heteroscedasticity(lmer_2k_P4_trimmed))
+
+ggsave("Diagnostik_LinearityHomoscedasticity_lmer_Discrete_P4.pdf",  width = 20, height = 15, units = "cm")
+```
+
+```{r r² of lmer_2k_P4_trimmed}
+r.squaredGLMM(lmer_2k_P4_trimmed)
+#            R2m       R2c
+# [1,] 0.1040715 0.5062782
+```
+## Conditional Analysis in regions 04 to 07 Summaries and plotting
+
+```{r lmer 2k summary}
+# R1 and R2 see below
+
+options(max.print=1000000)
+summary(lmer_2k_P4_trimmed)# participant_mm_groupingMismatch"0.032", proSie"0.043"
+summary(lmer_2k_P5_trimmed)
+summary(lmer_2k_P6_trimmed)
+summary(lmer_2k_P7_trimmed)
+```
+
+```{r Random effects data cut - Why?, eval=FALSE, include=FALSE}
+raw_participant = unique(df_2k$participant) # 61
+raw_item = unique(df_2k$item) # 60
+
+cut_participant = unique(lmer_2k_P4_trimmed@flist[["participant"]])
+
+dif_participant = setdiff(raw_participant, cut_participant)
+dif_participant # "19" "30" "34" "65" "76" "85"
+
+ranef(lmer_2k_P4_trimmed)
+```
+
+```{r 2k Tukey Contrast}
+tukey(model = lmer_2k_P4_trimmed,
+      predictor = participant_mm_grouping)
+#                            Estimate Std. Error z value Pr(>|z|)  
+# Mismatch - Match == 0        18.089      8.324   2.173   0.074 .
+tukey(model = lmer_2k_P7_trimmed,
+      predictor = participant_mm_grouping)
+#                            Estimate Std. Error z value Pr(>|z|)  
+#nAmbiguous - Match == 0      14.030      7.567   1.854   0.1521  
+#nAmbiguous - Mismatch == 0   18.354      8.169   2.247   0.0633 .
+```
+
+
+```{r}
+df_2k %>%
+  ggplot(., aes(x = rt_pos04_ordNorm, fill = participant_mm_grouping)) + 
+  ## add half-violin from {ggdist} package
+  ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+    ## adjust height
+    width = .6, 
+    ## move geom to the right
+    justification = -.2, 
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA,
+    slab_alpha = 0.7
+  ) + 
+  geom_boxplot(
+    width = .12, 
+    ## remove outliers
+    #outlier.color = NA ## `outlier.shape = NA` works as well
+  ) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    side = "left", 
+    dotsize = .5, 
+    justification = 1.2, 
+    binwidth = 10
+  ) +
+  ## remove white space on the left
+  coord_cartesian(xlim = c(200, NA))+ 
+  theme(legend.position = c(.7,.8))
+```
+
+
+```{r violin plot}
+# library(ggsignif)
+# temp = df_2k%>%
+#   filter(participant_mm_grouping == "Match")
+# median(temp$rt_pos04_ordNorm)
+
+
+violin04 <- df_2k %>%
+  ggplot(., aes(y = rt_pos04_ordNorm, x = participant_mm_grouping, fill = participant_mm_grouping))+
+  geom_violin(adjust = .5, show.legend = FALSE
+              )+
+  geom_boxplot(width = .2, show.legend = FALSE)+
+  coord_cartesian(ylim = c(200, 1600))+
+  scale_fill_manual(values=c("#00BA38", "#619CFF", "#F8766D"))+
+  labs(x = "Condition", y = "Reaction time at presentation region 04 in milliseconds")
+
+violin05 <- df_2k %>%
+  ggplot(., aes(y = rt_pos05_ordNorm, x = participant_mm_grouping, fill = participant_mm_grouping))+
+  geom_violin(adjust = .5,show.legend = FALSE
+              )+
+  geom_boxplot(width = .2, show.legend = FALSE)+
+#  geom_abline(intercept = 474, slope = 0, colour = "#000000",linetype="dashed")+
+  # geom_signif(comparisons = list(c("Match", "Mismatch")), map_signif_level=FALSE)+
+#  geom_signif(comparisons = list(c("Match", "nAmbiguous")), map_signif_level=TRUE, y_position = c(1675,NA))+
+  coord_cartesian(ylim = c(200, 1600))+
+  scale_fill_manual(values=c("#00BA38", "#619CFF", "#F8766D"))+
+  labs(x = "Condition", y = "Reaction time at region 04 in milliseconds", fill = "Condition")
+  
+violin04
+ggsave("violin_lmer_pos04_mm_grouping.pdf", width = 10, height = 20, units = "cm")
+violin05
+ggsave("violin_lmer_pos05_mm_grouping.pdf", width = 10, height = 20, units = "cm")
+
+```
+
+
+```{r}
+some <- read.csv("C:/Users/alexa/Documents/02_study/duesseldorf/BA_Linguistik/09_BBA_Bachelorarbeit/02_daten/ms_data.txt", header=T, sep=";")
+
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+some %>%
+  ggplot(aes(x = Region, y = RT, fill = Condition, colour = Condition))+
+  scale_fill_manual(values = cbPalette)+
+  geom_line()+
+  geom_point(aes(shape = Condition))+
+   labs(, y = "Reaction time in milliseconds")+
+  scale_x_continuous("Position", labels = c(1,2,3,4,5,6,7), breaks = c(1,2,3,4,5,6,7))
+
+
+ggsave("line_ms_allPos_mm_grouping.pdf", width = 20, height = 20, units = "cm")
+  
+```
+
+```{r visualize pos04 in 2k, eval=FALSE, include=FALSE}
+lmer_2k_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+model = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P4))) < 2.5)
+
+predicted <- predict(lmer_2k_P4_trimmed)
+range(predicted)
+
+df_2k %>%
+#  mutate(prediced = predict(lmer_2k_P4_trimmed)) %>%
+  ggplot(aes(participant_mm_grouping, rt_pos04_ordNorm, colour = participant_mm_grouping)) +
+  geom_boxplot(show.legend = F) #+
+#  geom_smooth(formula = "rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P4))) < 2.5",method = "lmer")
+
+
+df_2k %>%
+#  mutate(prediced = predict(lmer_2k_P4_trimmed)) %>%
+  ggplot(aes(participant_mm_grouping, rt_pos04_ordNorm, colour = participant_mm_grouping)) +
+  geom_boxplot(show.legend = F)+
+  geom_smooth(formula = "y ~ x + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_P4))) < 2.5",method = "lmer", show.legend = F)
+#  facet_grid(~Group) +
+#    geom_line(aes(y=pred1b, group=subject))
+
+####
+ggplot(lmer_P4, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+```
+
+# Regions 01 and 02 summaries
+
+```{r summaries}
+options(max.print=1000000)
+summary(lmer_2k_P1_trimmed)
+summary(lmer_2k_P2_trimmed)
+```
+
+# Continuous analysis
+## 5.5.4 `lmer` with as numeric `participant_itemPro_mm_num` auf `df_2k`
+
+```{r lmer 2k participant_itemPro_mm numeric}
+df_2k$participant_itemPro_mm_num <- as.numeric(as.character(df_2k$participant_itemPro_mm))
+# pos01
+lmer_2k_7step_P1_num <- lmer(rt_pos01_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_7step_P1_num_trimmed = lmer(rt_pos01_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_7step_P1_num))) < 2.5)
+
+# pos02
+lmer_2k_7step_P2_num <- lmer(rt_pos02_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_7step_P2_num_trimmed = lmer(rt_pos02_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_7step_P2_num))) < 2.5)
+
+# pos04
+lmer_2k_7step_P4_num <- lmer(rt_pos04_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_7step_P4_num_trimmed = lmer(rt_pos04_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_7step_P4_num))) < 2.5)
+
+# pos05
+lmer_2k_7step_P5_num <- lmer(rt_pos05_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_7step_P5_num_trimmed = lmer(rt_pos05_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_7step_P5_num))) < 2.5)
+
+# pos06
+lmer_2k_7step_P6_num <- lmer(rt_pos06_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_7step_P6_num_trimmed = lmer(rt_pos06_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_7step_P6_num))) < 2.5)
+
+# pos07
+lmer_2k_7step_P7_num <- lmer(rt_pos07_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k)
+lmer_2k_7step_P7_num_trimmed = lmer(rt_pos07_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k, subset = abs(scale(resid(lmer_2k_7step_P7_num))) < 2.5)
+```
+
+
+```{r 2k Diagnostik numeric itemPro}
+
+## Normality --
+plot(check_normality(lmer_2k_7step_P4_num_trimmed))
+ggsave("Diagnostik_Normality_lmer_num_P4.pdf",  width = 20, height = 15, units = "cm")
+
+par(mfrow = c(1, 2))
+
+#hist(residuals(lmer_2k_7step_P4_num_trimmed), col = 'skyblue2')
+
+qqnorm(residuals(lmer_2k_7step_P4_num_trimmed))
+qqline(residuals(lmer_2k_7step_P4_num_trimmed))
+
+plot(fitted(lmer_2k_7step_P4_num_trimmed), residuals(lmer_2k_7step_P4_num_trimmed))
+ggsave("Diagnostik_QQ_lmer_num_P4.pdf",  width = 20, height = 15, units = "cm")
+## Linearity, Homoscedasticity --
+plot(check_heteroscedasticity(lmer_2k_7step_P4_num_trimmed))
+ggsave("Diagnostik_Heteroscedasticity_lmer_num_P4.pdf",  width = 20, height = 15, units = "cm")
+```
+
+
+```{r summary 2k 7step numeric}
+summary(lmer_2k_7step_P1_num_trimmed)
+summary(lmer_2k_7step_P2_num_trimmed)
+summary(lmer_2k_7step_P4_num_trimmed)
+summary(lmer_2k_7step_P5_num_trimmed)
+summary(lmer_2k_7step_P6_num_trimmed)
+summary(lmer_2k_7step_P7_num_trimmed)
+```
+
+```{r}
+#rt_pos04_ordNorm ~ participant_itemPro_mm_num + (1 | participant) + trial_index_z + list + pro + item_freq_z + participant_gender +  participant_age_z, df_2k
+
+pred = predict(lmer_2k_7step_P4_num_trimmed)
+
+df_2k %>%
+  ggplot(., aes(y=rt_pos04_ordNorm, fill=participant_itemPro_mm)) +
+  geom_boxplot()#+
+
+
+jitter04 <- df_2k %>%
+  ggplot(., aes(y=rt_pos04_ordNorm, x=participant_itemPro_mm_num))+
+  geom_jitter(alpha = 0.2)+
+  geom_abline(intercept = 594.79865, slope = 3.64657, colour = "blue")+
+  annotate("text", x=1.5, y=1291.7646, label= "Estimate = 3.65, t = 3.37, p < 0.001",  colour = "red")+
+  annotate("text", x=1.5, y=1391.7646, label= "Intercept = 594.80", colour = "red")+
+  scale_x_continuous("Mismatch Gradient (0  = Match, 6 = Mismatch)", labels = c(0,1,2,3,4,5,6), breaks = c(0,1,2,3,4,5,6))+
+  scale_y_continuous("Reaction time in milliseconds", limits = c(200, 1600))
+     
+jitter05 <- df_2k %>%
+  ggplot(., aes(y=rt_pos05_ordNorm, x=participant_itemPro_mm_num))+
+  geom_jitter(alpha = 0.2)+
+  geom_abline(intercept = 458.7433, slope = 1.7919, colour = "blue")+
+  annotate("text", x=1.5, y=1291.7646, label= "Estimate = 1.79, t = 2.73, p < 0.01",  colour = "red")+
+  annotate("text", x=1.5, y=1391.7646, label= "Intercept = 458.74", colour = "red")+
+  scale_x_continuous("Mismatch Gradient (0  = Match, 6 = Mismatch)", labels = c(0,1,2,3,4,5,6), breaks = c(0,1,2,3,4,5,6))+
+  scale_y_continuous("Reaction time in milliseconds", limits = c(200, 1600))
+
+jitter04
+ggsave("jitter_lmer_num_P4.pdf",  width = 20, height = 20, units = "cm")
+jitter05
+ggsave("jitter_lmer_num_P5.pdf",  width = 20, height = 20, units = "cm")
+```
+
+
+# 06 Non-general investigations
+
+## 06.01. VP Gender Split (m,f)
+
+```{r make VP gender split dfs}
+df_2kW = filter(df_2k, participant_gender == "w")
+df_2kM = filter(df_2k, participant_gender == "m")
+```
+
+### 06.01.01 VP Gender Split W
+
+#### 06.01.01.3 only W `2k`
+
+```{r only 2kW}
+
+# pos01
+lmer_2kW_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW)
+lmer_2kW_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW, subset = abs(scale(resid(lmer_2kW_P1))) < 2.5)
+
+# pos02
+lmer_2kW_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW)
+lmer_2kW_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW, subset = abs(scale(resid(lmer_2kW_P2))) < 2.5)
+
+# pos04
+lmer_2kW_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW)
+lmer_2kW_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW, subset = abs(scale(resid(lmer_2kW_P4))) < 2.5)
+
+# pos05
+lmer_2kW_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW)
+lmer_2kW_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW, subset = abs(scale(resid(lmer_2kW_P5))) < 2.5)
+
+# pos06
+lmer_2kW_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW)
+lmer_2kW_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW, subset = abs(scale(resid(lmer_2kW_P6))) < 2.5)
+
+# pos07
+lmer_2kW_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW)
+lmer_2kW_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kW, subset = abs(scale(resid(lmer_2kW_P7))) < 2.5)
+```
+
+
+```{r only 2kW summary}
+summary(lmer_2kW_P1_trimmed)
+summary(lmer_2kW_P2_trimmed)
+summary(lmer_2kW_P4_trimmed)
+summary(lmer_2kW_P5_trimmed)
+summary(lmer_2kW_P6_trimmed)
+summary(lmer_2kW_P7_trimmed)
+```
+
+### 06.01.02 VP Gender Split M
+
+#### 06.01.02.3 only M `2k`
+
+```{r only 2kM}
+# pos01
+lmer_2kM_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM)
+lmer_2kM_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM, subset = abs(scale(resid(lmer_2kM_P1))) < 2.5)
+
+# pos02
+lmer_2kM_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM)
+lmer_2kM_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM, subset = abs(scale(resid(lmer_2kM_P2))) < 2.5)
+
+# pos04
+lmer_2kM_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM)
+lmer_2kM_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM, subset = abs(scale(resid(lmer_2kM_P4))) < 2.5)
+
+# pos05
+lmer_2kM_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM)
+lmer_2kM_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM, subset = abs(scale(resid(lmer_2kM_P5))) < 2.5)
+
+# pos06
+lmer_2kM_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM)
+lmer_2kM_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM, subset = abs(scale(resid(lmer_2kM_P6))) < 2.5)
+
+# pos07
+lmer_2kM_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM)
+lmer_2kM_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + pro + item_freq_z + participant_age_z, df_2kM, subset = abs(scale(resid(lmer_2kM_P7))) < 2.5)
+```
+
+```{r only 2kM summary}
+summary(lmer_2kM_P1_trimmed)
+summary(lmer_2kM_P2_trimmed)
+summary(lmer_2kM_P4_trimmed)
+summary(lmer_2kM_P5_trimmed)
+summary(lmer_2kM_P6_trimmed)
+summary(lmer_2kM_P7_trimmed)
+```
+
+### visualize M and W in pos04 and pos05 in df_cat and df_5k
+
+```{r visualize differences MandW in df_cat in pos04 and pos05}
+# require(gridExtra)
+plot1 = df_cat %>%
+  filter(participant_gender == c("m", "w")) %>%
+  ggplot(., aes(rt_pos04_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ participant_gender, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 04 in the data frame 'df_cat'") +
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()) + 
+  scale_fill_discrete(guide="none")
+  
+plot2 = df_5k %>%
+  filter(participant_gender == c("m", "w")) %>%
+  ggplot(., aes(rt_pos04_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ participant_gender, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 04 in the data frame 'df_5k'")
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()) +  
+  scale_fill_discrete(guide="none")
+
+
+plot3 = df_cat %>%
+  filter(participant_gender == c("m", "w")) %>%
+  ggplot(., aes(rt_pos05_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ participant_gender, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 04 in the data frame 'df_5k'")
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()) + 
+  scale_fill_discrete(guide="none")
+  
+plot4 = df_5k %>%
+  filter(participant_gender == c("m", "w")) %>%
+  ggplot(., aes(rt_pos05_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ participant_gender, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 05 in the data frame 'df_5k'")  + 
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank(),
+        legend.position = c(0.8, 0.8)) # moves the legend
+
+plot5 = df_2k %>%
+  filter(participant_gender == c("m", "w")) %>%
+  ggplot(., aes(rt_pos05_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ participant_gender, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 04 in the data frame 'df_5k'")
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()) + 
+  scale_fill_discrete(guide="none")
+  
+plot6 = df_2k %>%
+  filter(participant_gender == c("m", "w")) %>%
+  ggplot(., aes(rt_pos05_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ participant_gender, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 05 in the data frame 'df_5k'")  + 
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank(),
+        legend.position = c(0.8, 0.8)) # moves the legend
+
+grid.arrange(plot1
+             , plot3
+             , plot2
+             , plot4
+             , ncol=2
+             , top = "rts for genders 'm' and 'w' at pos04 and pos05 in the dfs 'df_cat' (top) and 'df_5k' (bottom)")
+
+
+grid.arrange(plot3
+             , plot4
+             , plot5
+             , plot6
+             , ncol=2
+             , top = "rts for genders 'm' and 'w' at pos04 and pos05 in the dfs 'df_5k' (top) and 'df_2k' (bottom)")
+
+```
+
+## 06.02 pro split (effect only in er oder sie?)
+
+```{r make pro split dfs}
+df_2kSie = filter(df_2k, pro == "Sie")
+df_2kEr = filter(df_2k, pro == "Er")
+```
+
+### 06.02.01 pro Split Sie
+#### 06.02.01.3 only Sie `2k`
+
+```{r only 2kSie}
+
+# pos01
+lmer_2kSie_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie)
+lmer_2kSie_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie, subset = abs(scale(resid(lmer_2kSie_P1))) < 2.5)
+
+# pos02
+lmer_2kSie_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie)
+lmer_2kSie_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie, subset = abs(scale(resid(lmer_2kSie_P2))) < 2.5)
+
+# pos04
+lmer_2kSie_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie)
+lmer_2kSie_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie, subset = abs(scale(resid(lmer_2kSie_P4))) < 2.5)
+
+# pos05
+lmer_2kSie_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie)
+lmer_2kSie_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie, subset = abs(scale(resid(lmer_2kSie_P5))) < 2.5)
+
+# pos06
+lmer_2kSie_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie)
+lmer_2kSie_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie, subset = abs(scale(resid(lmer_2kSie_P6))) < 2.5)
+
+# pos07
+lmer_2kSie_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie)
+lmer_2kSie_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kSie, subset = abs(scale(resid(lmer_2kSie_P7))) < 2.5)
+```
+
+```{r only 2kSie summary}
+summary(lmer_2kSie_P1_trimmed)
+summary(lmer_2kSie_P2_trimmed)
+summary(lmer_2kSie_P4_trimmed)
+summary(lmer_2kSie_P5_trimmed)
+summary(lmer_2kSie_P6_trimmed)
+summary(lmer_2kSie_P7_trimmed)
+```
+
+### 06.02.02 pro Split Er
+#### 06.02.02.3 only Er `2k`
+
+```{r only 2kEr}
+# pos01
+lmer_2kEr_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr)
+lmer_2kEr_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr, subset = abs(scale(resid(lmer_2kEr_P1))) < 2.5)
+
+# pos02
+lmer_2kEr_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr)
+lmer_2kEr_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr, subset = abs(scale(resid(lmer_2kEr_P2))) < 2.5)
+
+# pos04
+lmer_2kEr_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr)
+lmer_2kEr_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr, subset = abs(scale(resid(lmer_2kEr_P4))) < 2.5)
+
+# pos05
+lmer_2kEr_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr)
+lmer_2kEr_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr, subset = abs(scale(resid(lmer_2kEr_P5))) < 2.5)
+
+# pos06
+lmer_2kEr_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr)
+lmer_2kEr_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr, subset = abs(scale(resid(lmer_2kEr_P6))) < 2.5)
+
+# pos07
+lmer_2kEr_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr)
+lmer_2kEr_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kEr, subset = abs(scale(resid(lmer_2kEr_P7))) < 2.5)
+```
+
+
+```{r only 2kEr summary}
+summary(lmer_2kEr_P1_trimmed)
+summary(lmer_2kEr_P2_trimmed)
+summary(lmer_2kEr_P4_trimmed)
+summary(lmer_2kEr_P5_trimmed)
+summary(lmer_2kEr_P6_trimmed)
+summary(lmer_2kEr_P7_trimmed)
+```
+
+### 06.02.03 visualize Er and Sie in pos04 and pos05 in df_2k
+
+```{r visualize differences ErandSie in df_2k in pos04 and pos05}
+
+plot1 = df_2k %>%
+#  filter(pro == c("Er", "Sie")) %>%
+  ggplot(., aes(rt_pos04_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ pro, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 04 in the data frame 'df_cat'") +
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()) + 
+  scale_fill_discrete(guide="none")
+  
+plot2 = df_2k %>%
+#  filter(pro == c("Er", "Sie")) %>%
+  ggplot(., aes(rt_pos05_ordNorm, fill = participant_mm_grouping))+
+  geom_boxplot()+
+  facet_wrap(~ pro, ncol=1, dir="v")+
+  scale_x_continuous(limits = c(0, 3200))+
+  #ggtitle("rts for genders 'm' and 'w' at position 04 in the data frame 'df_5k'")
+  theme(text=element_text(size=8),# size of title and legend
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank(),
+        legend.position = c(0.8, 0.8))
+
+grid.arrange(plot1
+             , plot2
+             , ncol=2
+             , top = "rts for pronouns 'Er' and 'Sie' at pos04 and pos05 in df_2k")
+
+```
+
+## 06.03. L2 and Non-L2-splits
+
+welche sprachen? fre, jap, ita
+
+```{r make dfs for language_z splits}
+df_2kFreYes = filter(df_2k, freTF == 1)
+df_2kFreNo = filter(df_2k, freTF == 0)
+
+df_2kJpnYes = filter(df_2k, jpnTF == 1)
+df_2kJpnNo = filter(df_2k, jpnTF == 0)
+
+df_2kItaYes = filter(df_2k, itaTF == 1)
+df_2kItaNo = filter(df_2k, itaTF == 0)
+
+length(unique(df_2kFreYes$participant))
+length(unique(df_2kFreNo$participant))
+length(unique(df_2kJpnYes$participant))
+length(unique(df_2kJpnNo$participant))
+length(unique(df_2kItaYes$participant))
+length(unique(df_2kItaNo$participant))
+```
+
+### 06.03.01 fre Split
+
+#### 06.03.01.1 only freYes `2k`
+
+```{r only 2kFreYes}
+# pos01
+lmer_2kFreYes_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes)
+lmer_2kFreYes_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes, subset = abs(scale(resid(lmer_2kFreYes_P1))) < 2.5)
+
+# pos02
+lmer_2kFreYes_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes)
+lmer_2kFreYes_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes, subset = abs(scale(resid(lmer_2kFreYes_P2))) < 2.5)
+
+# pos04
+lmer_2kFreYes_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes)
+lmer_2kFreYes_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes, subset = abs(scale(resid(lmer_2kFreYes_P4))) < 2.5)
+
+# pos05
+lmer_2kFreYes_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes)
+lmer_2kFreYes_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes, subset = abs(scale(resid(lmer_2kFreYes_P5))) < 2.5)
+
+# pos06
+lmer_2kFreYes_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes)
+lmer_2kFreYes_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes, subset = abs(scale(resid(lmer_2kFreYes_P6))) < 2.5)
+
+# pos07
+lmer_2kFreYes_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes)
+lmer_2kFreYes_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreYes, subset = abs(scale(resid(lmer_2kFreYes_P7))) < 2.5)
+```
+
+
+```{r only 2kFreYes summary}
+summary(lmer_2kFreYes_P1_trimmed)
+summary(lmer_2kFreYes_P2_trimmed)
+summary(lmer_2kFreYes_P4_trimmed)
+summary(lmer_2kFreYes_P5_trimmed)
+summary(lmer_2kFreYes_P6_trimmed)
+summary(lmer_2kFreYes_P7_trimmed)
+```
+
+#### 06.03.01.2 only freNo `2k`
+
+```{r only 2kFreNo}
+# pos01
+lmer_2kFreNo_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo)
+lmer_2kFreNo_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo, subset = abs(scale(resid(lmer_2kFreNo_P1))) < 2.5)
+
+# pos02
+lmer_2kFreNo_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo)
+lmer_2kFreNo_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo, subset = abs(scale(resid(lmer_2kFreNo_P2))) < 2.5)
+
+# pos04
+lmer_2kFreNo_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo)
+lmer_2kFreNo_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo, subset = abs(scale(resid(lmer_2kFreNo_P4))) < 2.5)
+
+# pos05
+lmer_2kFreNo_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo)
+lmer_2kFreNo_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo, subset = abs(scale(resid(lmer_2kFreNo_P5))) < 2.5)
+
+# pos06
+lmer_2kFreNo_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo)
+lmer_2kFreNo_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo, subset = abs(scale(resid(lmer_2kFreNo_P6))) < 2.5)
+
+# pos07
+lmer_2kFreNo_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo)
+lmer_2kFreNo_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kFreNo, subset = abs(scale(resid(lmer_2kFreNo_P7))) < 2.5)
+```
+
+
+```{r only 2kFreNo summary}
+summary(lmer_2kFreNo_P1_trimmed)
+summary(lmer_2kFreNo_P2_trimmed)
+summary(lmer_2kFreNo_P4_trimmed)
+summary(lmer_2kFreNo_P5_trimmed)
+summary(lmer_2kFreNo_P6_trimmed)
+summary(lmer_2kFreNo_P7_trimmed)
+```
+
+### 06.03.02 jpn Split
+
+#### 06.03.02.1 only jpnYes `2k`
+
+```{r only 2kJpnYes}
+# pos01
+lmer_2kJpnYes_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes)
+lmer_2kJpnYes_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes, subset = abs(scale(resid(lmer_2kJpnYes_P1))) < 2.5)
+
+# pos02
+lmer_2kJpnYes_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes)
+lmer_2kJpnYes_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes, subset = abs(scale(resid(lmer_2kJpnYes_P2))) < 2.5)
+
+# pos04
+lmer_2kJpnYes_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes)
+lmer_2kJpnYes_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes, subset = abs(scale(resid(lmer_2kJpnYes_P4))) < 2.5)
+
+# pos05
+lmer_2kJpnYes_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes)
+lmer_2kJpnYes_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes, subset = abs(scale(resid(lmer_2kJpnYes_P5))) < 2.5)
+
+# pos06
+lmer_2kJpnYes_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes)
+lmer_2kJpnYes_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes, subset = abs(scale(resid(lmer_2kJpnYes_P6))) < 2.5)
+
+# pos07
+lmer_2kJpnYes_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes)
+lmer_2kJpnYes_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnYes, subset = abs(scale(resid(lmer_2kJpnYes_P7))) < 2.5)
+```
+
+
+```{r only 2kJpnYes summary}
+summary(lmer_2kJpnYes_P1_trimmed)
+summary(lmer_2kJpnYes_P2_trimmed)
+summary(lmer_2kJpnYes_P4_trimmed)
+summary(lmer_2kJpnYes_P5_trimmed)
+summary(lmer_2kJpnYes_P6_trimmed)
+summary(lmer_2kJpnYes_P7_trimmed)
+```
+
+#### 06.03.02.2 only jpnNo `2k`
+
+```{r only 2kJpnNo}
+# pos01
+lmer_2kJpnNo_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo)
+lmer_2kJpnNo_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo, subset = abs(scale(resid(lmer_2kJpnNo_P1))) < 2.5)
+
+# pos02
+lmer_2kJpnNo_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo)
+lmer_2kJpnNo_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo, subset = abs(scale(resid(lmer_2kJpnNo_P2))) < 2.5)
+
+# pos04
+lmer_2kJpnNo_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo)
+lmer_2kJpnNo_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo, subset = abs(scale(resid(lmer_2kJpnNo_P4))) < 2.5)
+
+# pos05
+lmer_2kJpnNo_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo)
+lmer_2kJpnNo_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo, subset = abs(scale(resid(lmer_2kJpnNo_P5))) < 2.5)
+
+# pos06
+lmer_2kJpnNo_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo)
+lmer_2kJpnNo_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo, subset = abs(scale(resid(lmer_2kJpnNo_P6))) < 2.5)
+
+# pos07
+lmer_2kJpnNo_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo)
+lmer_2kJpnNo_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kJpnNo, subset = abs(scale(resid(lmer_2kJpnNo_P7))) < 2.5)
+```
+
+
+```{r only 2kJpnNo summary}
+summary(lmer_2kJpnNo_P1_trimmed)
+summary(lmer_2kJpnNo_P2_trimmed)
+summary(lmer_2kJpnNo_P4_trimmed)
+summary(lmer_2kJpnNo_P5_trimmed)
+summary(lmer_2kJpnNo_P6_trimmed)
+summary(lmer_2kJpnNo_P7_trimmed)
+```
+
+### 06.03.03 ita Split
+
+#### 06.03.03.1 only itaYes `2k`
+
+```{r only 2kItaYes}
+# pos01
+lmer_2kItaYes_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes)
+lmer_2kItaYes_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes, subset = abs(scale(resid(lmer_2kItaYes_P1))) < 2.5)
+
+# pos02
+lmer_2kItaYes_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes)
+lmer_2kItaYes_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes, subset = abs(scale(resid(lmer_2kItaYes_P2))) < 2.5)
+
+# pos04
+lmer_2kItaYes_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes)
+lmer_2kItaYes_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes, subset = abs(scale(resid(lmer_2kItaYes_P4))) < 2.5)
+
+# pos05
+lmer_2kItaYes_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes)
+lmer_2kItaYes_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes, subset = abs(scale(resid(lmer_2kItaYes_P5))) < 2.5)
+
+# pos06
+lmer_2kItaYes_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes)
+lmer_2kItaYes_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes, subset = abs(scale(resid(lmer_2kItaYes_P6))) < 2.5)
+
+# pos07
+lmer_2kItaYes_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes)
+lmer_2kItaYes_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaYes, subset = abs(scale(resid(lmer_2kItaYes_P7))) < 2.5)
+```
+
+
+```{r only 2kItaYes summary}
+summary(lmer_2kItaYes_P1_trimmed)
+summary(lmer_2kItaYes_P2_trimmed)
+summary(lmer_2kItaYes_P4_trimmed)
+summary(lmer_2kItaYes_P5_trimmed)
+summary(lmer_2kItaYes_P6_trimmed)
+summary(lmer_2kItaYes_P7_trimmed)
+```
+
+#### 06.03.03.2 only itaNo `2k`
+
+```{r only 2kItaNo}
+# pos01
+lmer_2kItaNo_P1 <- lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo)
+lmer_2kItaNo_P1_trimmed = lmer(rt_pos01_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo, subset = abs(scale(resid(lmer_2kItaNo_P1))) < 2.5)
+
+# pos02
+lmer_2kItaNo_P2 <- lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo)
+lmer_2kItaNo_P2_trimmed = lmer(rt_pos02_ordNorm ~ participant_mm_grouping_nonAmb + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo, subset = abs(scale(resid(lmer_2kItaNo_P2))) < 2.5)
+
+# pos04
+lmer_2kItaNo_P4 <- lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo)
+lmer_2kItaNo_P4_trimmed = lmer(rt_pos04_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo, subset = abs(scale(resid(lmer_2kItaNo_P4))) < 2.5)
+
+# pos05
+lmer_2kItaNo_P5 <- lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo)
+lmer_2kItaNo_P5_trimmed = lmer(rt_pos05_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo, subset = abs(scale(resid(lmer_2kItaNo_P5))) < 2.5)
+
+# pos06
+lmer_2kItaNo_P6 <- lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo)
+lmer_2kItaNo_P6_trimmed = lmer(rt_pos06_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo, subset = abs(scale(resid(lmer_2kItaNo_P6))) < 2.5)
+
+# pos07
+lmer_2kItaNo_P7 <- lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo)
+lmer_2kItaNo_P7_trimmed = lmer(rt_pos07_ordNorm ~ participant_mm_grouping + (1 | participant) + trial_index + list + participant_gender + item_freq_z + participant_age_z, df_2kItaNo, subset = abs(scale(resid(lmer_2kItaNo_P7))) < 2.5)
+```
+
+
+```{r only 2kItaNo summary}
+summary(lmer_2kItaNo_P1_trimmed)
+summary(lmer_2kItaNo_P2_trimmed)
+summary(lmer_2kItaNo_P4_trimmed)
+summary(lmer_2kItaNo_P5_trimmed)
+summary(lmer_2kItaNo_P6_trimmed)
+summary(lmer_2kItaNo_P7_trimmed)
+```
+
+## 06.04. Item-Gender via Norming study (ignore Post-Hoc)
+
+## 07.01 Filler
+
+```{r create df_f}
+df_f <- subset(df, item_type == "Filler")
+# df_f
+```
+
+```{r}
+x = df_f$participant_age
+df_f$participant_age_z = (x - mean(x))/sd(x)
+```
+
+
+```{r trim f2k}
+temp_df <- c()
+df_preTrimf2k <- c()
+
+for (i in participant_list) {
+  # print("next participant is:")
+  # print(i)
+  temp_df <- df_f[df_f$participant == i,]
+  temp_df <- temp_df[temp_df$rt_pos01 > 200 & temp_df$rt_pos01 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos02 > 200 & temp_df$rt_pos02 < 2000,]
+  #temp_df <- temp_df[temp_df$rt_pos03 > 200 & temp_df$rt_pos03 < 5000,]
+  temp_df <- temp_df[temp_df$rt_pos04 > 200 & temp_df$rt_pos04 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos05 > 200 & temp_df$rt_pos05 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos06 > 200 & temp_df$rt_pos06 < 2000,]
+  temp_df <- temp_df[temp_df$rt_pos07 > 200 & temp_df$rt_pos07 < 2000,]
+  #temp_df <- temp_df[temp_df$rt_pos08 > 200 & temp_df$rt_pos08 < 5000,]
+  #temp_df <- temp_df[temp_df$rt_pos09 > 200 & temp_df$rt_pos09 < 5000,]
+  df_preTrimf2k <- rbind(df_preTrimf2k,temp_df)
+}
+#df_preTrimf2k
+
+#--- 
+
+temp_df <- c()
+df_f2k <- c()
+
+for (i in participant_list) {
+  # print("next participant is:")
+  # print(i)
+  temp_df <- df_preTrimf2k[df_preTrimf2k$participant == i,]
+  temp_df <- temp_df[temp_df$rt_pos01 > (mean(temp_df$rt_pos01)-2.5*sd(temp_df$rt_pos01)) & temp_df$rt_pos01 < (mean(temp_df$rt_pos01)+2.5*sd(temp_df$rt_pos01)),]
+  temp_df <- temp_df[temp_df$rt_pos02 > (mean(temp_df$rt_pos02)-2.5*sd(temp_df$rt_pos02)) & temp_df$rt_pos02 < (mean(temp_df$rt_pos02)+2.5*sd(temp_df$rt_pos02)),]
+  #temp_df <- temp_df[temp_df$rt_pos03 > (mean(temp_df$rt_pos03)-2.5*sd(temp_df$rt_pos03)) & temp_df$rt_pos03 < (mean(temp_df$rt_pos03)+2.5*sd(temp_df$rt_pos03)),]
+  temp_df <- temp_df[temp_df$rt_pos04 > (mean(temp_df$rt_pos04)-2.5*sd(temp_df$rt_pos04)) & temp_df$rt_pos04 < (mean(temp_df$rt_pos04)+2.5*sd(temp_df$rt_pos04)),]
+  temp_df <- temp_df[temp_df$rt_pos05 > (mean(temp_df$rt_pos05)-2.5*sd(temp_df$rt_pos05)) & temp_df$rt_pos05 < (mean(temp_df$rt_pos05)+2.5*sd(temp_df$rt_pos05)),]
+  temp_df <- temp_df[temp_df$rt_pos06 > (mean(temp_df$rt_pos06)-2.5*sd(temp_df$rt_pos06)) & temp_df$rt_pos06 < (mean(temp_df$rt_pos06)+2.5*sd(temp_df$rt_pos06)),]
+  temp_df <- temp_df[temp_df$rt_pos07 > (mean(temp_df$rt_pos07)-2.5*sd(temp_df$rt_pos07)) & temp_df$rt_pos07 < (mean(temp_df$rt_pos07)+2.5*sd(temp_df$rt_pos07)),]
+  #temp_df <- temp_df[temp_df$rt_pos08 > (mean(temp_df$rt_pos08)-2.5*sd(temp_df$rt_pos08)) & temp_df$rt_pos08 < (mean(temp_df$rt_pos08)+2.5*sd(temp_df$rt_pos08)),]
+  #temp_df <- temp_df[temp_df$rt_pos09 > (mean(temp_df$rt_pos09)-2.5*sd(temp_df$rt_pos09)) & temp_df$rt_pos09 < (mean(temp_df$rt_pos09)+2.5*sd(temp_df$rt_pos09)),]
+  df_f2k <- rbind(df_f2k,temp_df)
+}
+#df_f2k
+
+```
+
+```{r normalize f2k}
+# see documentation for `orderNorm` here: https://www.rdocumentation.org/package_zs/bestNormalize/versions/1.8.3/topics/orderNorm
+
+#bestNormalize(df_f2k$rt_pos01)
+#df_f2k$rt_pos01
+
+#normalize pos01
+orderNorm_obj <- orderNorm(df_f2k$rt_pos01,n_logit_fit = min(length(df_f2k$rt_pos01), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos01_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos01_ordNorm)
+
+#normalize pos02
+orderNorm_obj <- orderNorm(df_f2k$rt_pos02,n_logit_fit = min(length(df_f2k$rt_pos02), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos02_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos02_ordNorm)
+
+#normalize pos03
+orderNorm_obj <- orderNorm(df_f2k$rt_pos03,n_logit_fit = min(length(df_f2k$rt_pos03), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos03_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos03_ordNorm)
+
+#normalize pos04
+orderNorm_obj <- orderNorm(df_f2k$rt_pos04,n_logit_fit = min(length(df_f2k$rt_pos04), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos04_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos04_ordNorm)
+
+#normalize pos05
+orderNorm_obj <- orderNorm(df_f2k$rt_pos05,n_logit_fit = min(length(df_f2k$rt_pos05), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos05_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos05_ordNorm)
+
+#normalize pos06
+orderNorm_obj <- orderNorm(df_f2k$rt_pos06,n_logit_fit = min(length(df_f2k$rt_pos06), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos06_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos06_ordNorm)
+
+#normalize pos07
+orderNorm_obj <- orderNorm(df_f2k$rt_pos07,n_logit_fit = min(length(df_f2k$rt_pos07), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos07_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos07_ordNorm)
+
+#normalize pos08
+orderNorm_obj <- orderNorm(df_f2k$rt_pos08,n_logit_fit = min(length(df_f2k$rt_pos08), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos08_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos08_ordNorm)
+
+#normalize pos09
+orderNorm_obj <- orderNorm(df_f2k$rt_pos09,n_logit_fit = min(length(df_f2k$rt_pos09), 10000), warn = FALSE)
+orderNorm_obj
+p <- predict(orderNorm_obj)
+df_f2k$rt_pos09_ordNorm <- predict(orderNorm_obj, newdata = p, inverse = TRUE)
+#shapiro.test(df_f2k$rt_pos09_ordNorm)
+```
+
+```{r lmer df_f2k}
+lmer_f2k_P1 <- lmer(rt_pos01_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k)
+lmer_f2k_P1_trimmed = lmer(rt_pos01_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k, subset = abs(scale(resid(lmer_f2k_P1))) < 2.5)
+
+# pos02
+lmer_f2k_P2 <- lmer(rt_pos02_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k)
+lmer_f2k_P2_trimmed = lmer(rt_pos02_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k, subset = abs(scale(resid(lmer_f2k_P2))) < 2.5)
+
+# pos04
+lmer_f2k_P4 <- lmer(rt_pos04_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k)
+lmer_f2k_P4_trimmed = lmer(rt_pos04_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k, subset = abs(scale(resid(lmer_f2k_P4))) < 2.5)
+
+# pos05
+lmer_f2k_P5 <- lmer(rt_pos05_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k)
+lmer_f2k_P5_trimmed = lmer(rt_pos05_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k, subset = abs(scale(resid(lmer_f2k_P5))) < 2.5)
+
+# pos06
+lmer_f2k_P6 <- lmer(rt_pos06_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k)
+lmer_f2k_P6_trimmed = lmer(rt_pos06_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k, subset = abs(scale(resid(lmer_f2k_P6))) < 2.5)
+
+# pos07
+lmer_f2k_P7 <- lmer(rt_pos07_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k)
+lmer_f2k_P7_trimmed = lmer(rt_pos07_ordNorm ~ item_gender_norming + (1 | participant) + trial_index + list + pro +  participant_age_z, df_f2k, subset = abs(scale(resid(lmer_f2k_P7))) < 2.5)
+
+```
+
+
+```{r}
+summary(lmer_f2k_P1_trimmed)
+summary(lmer_f2k_P2_trimmed)
+summary(lmer_f2k_P4_trimmed)
+summary(lmer_f2k_P5_trimmed)
+summary(lmer_f2k_P6_trimmed)
+summary(lmer_f2k_P7_trimmed)
+```
+
+```{r ggplot df_f2k}
+df_f2k %>%
+  ggplot(., aes(y = rt_pos01_ordNorm, x = item_gender_norming, fill = item_gender_norming))+
+  geom_boxplot()
+# +
+#   geom_signif(
+#     comparisons = list(c("m", "f")),
+#     map_signif_level = F
+# )
+
+df_f2k %>%
+  ggplot(., aes(y = rt_pos04_ordNorm, x = pro, fill = item_gender_norming))+
+  geom_boxplot()
+# +
+#   geom_signif(
+#     comparisons = list(c("Er", "Sie")),
+#     map_signif_level = T
+#   )+
+#   geom_signif(
+#     comparisons = list(c("m", "f")),
+#     map_signif_level = T
+```
+
+# --------- old things to concider
+
+There are some extreme outliers
+
+```{r,echo=TRUE}
+ggplot(df_5k, aes(x = rt_pos01, fill = participant_mm_grouping, alpha = 0.05)) + 
+  geom_density() +
+  scale_x_log10()
+
+ggplot(df_5k, aes(x = rt_pos01)) + 
+  geom_histogram(fill = 'peachpuff3') +
+  geom_vline(aes(xintercept = mean(df_5k$rt_pos01)),linetype = 2) #+
+#  scale_x_log10()
+
+
+ggplot(df_t, aes(x = rt_pos01)) + 
+  geom_histogram(fill = 'peachpuff3') +
+  geom_vline(aes(xintercept = mean(df_t$rt_pos01)),linetype = 2) +
+  scale_x_log10()
+
+```
+
+I check whether the data is in normal distribution liegt der p-Wert
+unter 0.05 sind die reaktionszeiten nicht normalverteilt. -\> they are
+all below 0.05 such that they all need to be normalised
+
+```{r Normal distribution check, include=FALSE, eval=FALSE}
+shapiro.test(df_t$rt_pos01)
+shapiro.test(df_t$rt_pos02)
+shapiro.test(df_t$rt_pos03)
+shapiro.test(df_t$rt_pos04)
+shapiro.test(df_t$rt_pos05)
+shapiro.test(df_t$rt_pos06)
+shapiro.test(df_t$rt_pos07)
+shapiro.test(df_t$rt_pos08)
+shapiro.test(df_t$rt_pos09)
+```
+
+I logged all rts so that the data is notmalised
+
+```{r log rts, echo=TRUE}
+df_t$rt_pos01_log <- log(df_t$rt_pos01)
+df_t$rt_pos02_log <- log(df_t$rt_pos02)
+df_t$rt_pos03_log <- log(df_t$rt_pos03)
+df_t$rt_pos04_log <- log(df_t$rt_pos04)
+df_t$rt_pos05_log <- log(df_t$rt_pos05)
+df_t$rt_pos06_log <- log(df_t$rt_pos06)
+df_t$rt_pos07_log <- log(df_t$rt_pos07)
+df_t$rt_pos08_log <- log(df_t$rt_pos08)
+df_t$rt_pos09_log <- log(df_t$rt_pos09)
+```
+
+logged sharpiro test still has terrible results. I will now investigate
+the individuals results
+
+```{r Shapiro test for log rts, eval=FALSE, include=FALSE}
+shapiro.test(df_t$rt_pos01_log)
+shapiro.test(df_t$rt_pos02_log)
+shapiro.test(df_t$rt_pos03_log)
+shapiro.test(df_t$rt_pos04_log)
+shapiro.test(df_t$rt_pos05_log)
+shapiro.test(df_t$rt_pos06_log)
+shapiro.test(df_t$rt_pos07_log)
+shapiro.test(df_t$rt_pos08_log)
+shapiro.test(df_t$rt_pos09_log)
+```
